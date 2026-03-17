@@ -571,10 +571,17 @@ class FitsWebDownloaderGUI:
                                      state="readonly", width=15)
             sort_combo.grid(row=0, column=5, sticky=tk.W, padx=5)
 
+            # 星点SNR阈值（新流程直接使用）
+            snr_min_label = ttk.Label(row4_frame, text="星点 SNR >")
+            snr_min_label.grid(row=0, column=6, sticky=tk.W, padx=(20, 5))
+
+            snr_min_entry = ttk.Entry(row4_frame, textvariable=self.fits_viewer.detection_snr_min_var, width=8)
+            snr_min_entry.grid(row=0, column=7, sticky=tk.W, padx=5)
+
             # 直线检测过滤开关
             line_detection_check = ttk.Checkbutton(row4_frame, text="批量导出时过滤过中心直线",
                                                   variable=self.fits_viewer.enable_line_detection_filter_var)
-            line_detection_check.grid(row=0, column=6, sticky=tk.W, padx=(20, 5))
+            line_detection_check.grid(row=0, column=8, sticky=tk.W, padx=(20, 5))
 
         # 第五行：GPS和MPC设置
         # 第六行：直线检测设置（灵敏度与中心距离）
@@ -3692,6 +3699,13 @@ Diff统计:
                     return result_dict
 
             # 执行diff操作
+            detection_snr_min = 5.0
+            try:
+                batch_settings = self.config_manager.get_batch_process_settings()
+                detection_snr_min = float(batch_settings.get("detection_snr_min", 5.0))
+            except Exception:
+                detection_snr_min = 5.0
+
             diff_result = self.fits_viewer.diff_orb.process_diff(
                 download_file,
                 template_file,
@@ -3703,6 +3717,7 @@ Diff统计:
                 percentile_low=percentile_low,
                 fast_mode=fast_mode,
                 sort_by=sort_by,
+                detection_snr_min=detection_snr_min,
                 science_bg_mode=science_bg_mode,
                 diff_calc_mode=diff_calc_mode,
                 apply_diff_postprocess=apply_diff_postprocess

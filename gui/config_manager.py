@@ -76,6 +76,7 @@ class ConfigManager:
                 "percentile_low": 99.95,  # 百分位参数（GUI默认值：99.95）
                 "max_jaggedness_ratio": 1.2,  # 最大锯齿比率（GUI默认值：1.2）
                 "detection_method": "contour",  # 检测方法: contour, simple_blob（GUI默认值：contour）
+                "detection_snr_min": 5.0,  # 星点检测SNR阈值（默认值：5.0）
                 "score_threshold": 3.0,  # 综合得分阈值（GUI默认值：3.0）
                 "aligned_snr_threshold": 1.1,  # Aligned SNR阈值（GUI默认值：1.1）
                 "sort_by": "aligned_snr",  # 排序方式: quality_score, aligned_snr, snr（GUI默认值：aligned_snr）
@@ -342,6 +343,17 @@ class ConfigManager:
         # 如果配置中没有批量处理设置，使用默认值
         if "batch_process_settings" not in self.config:
             self.config["batch_process_settings"] = self.default_config["batch_process_settings"].copy()
+            self.save_config()
+            return self.config["batch_process_settings"]
+
+        # 兼容旧配置：补齐缺失键（例如 detection_snr_min）
+        changed = False
+        default_batch = self.default_config.get("batch_process_settings", {})
+        for key, default_value in default_batch.items():
+            if key not in self.config["batch_process_settings"]:
+                self.config["batch_process_settings"][key] = default_value
+                changed = True
+        if changed:
             self.save_config()
         return self.config["batch_process_settings"]
 

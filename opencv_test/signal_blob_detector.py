@@ -6,6 +6,9 @@
 import cv2
 import numpy as np
 from astropy.io import fits
+from astropy.stats import sigma_clipped_stats
+from astropy.table import Table
+from photutils.detection import DAOStarFinder
 import os
 import sys
 import argparse
@@ -251,6 +254,93 @@ class SignalBlobDetector:
         result = cv2.inpaint(image, mask, 3, cv2.INPAINT_TELEA)
 
         return result
+
+    def remove_bright_lines_float(self, data, threshold=50, dilate_size=5):
+        """
+        在不做检测拉伸的前提下，对原始浮点数据执行亮线去除。
+        使用线性归一化仅用于构建/修复，最终返回与输入同尺度的浮点数组。
+        """
+        finite_mask = np.isfinite(data)
+        if not np.any(finite_mask):
+            return data.copy()
+
+        data_finite = data[finite_mask]
+        p1, p99 = np.percentile(data_finite, [1, 99])
+        if p99 <= p1:
+            p1 = float(np.min(data_finite))
+            p99 = float(np.max(data_finite))
+        if p99 <= p1:
+            return data.copy()
+
+        # 仅用于亮线检测/修复的临时线性映射，不作为检测拉伸策略
+        norm = np.clip((data - p1) / (p99 - p1), 0, 1)
+        image_uint8 = (norm * 255).astype(np.uint8)
+
+        repaired_uint8 = self.remove_bright_lines(
+            image_uint8, threshold=threshold, dilate_size=dilate_size
+        )
+
+        repaired = repaired_uint8.astype(np.float32) / 255.0
+        restored = repaired * (p99 - p1) + p1
+        restored[~finite_mask] = data[~finite_mask]
+        return restored.astype(np.float32)
+
+    def extract_stars_by_snr(
+        self,
+        data,
+        snr_min=5.0,
+        fwhm=3.0,
+        sharplo=0.2,
+        sharphi=1.0,
+        roundlo=-1.0,
+        roundhi=1.0,
+    ):
+        """使用 DAOStarFinder 直接提取星点并按 SNR 过滤。"""
+        mean, median, std = sigma_clipped_stats(data, sigma=3.0, maxiters=10)
+        if std <= 0 or not np.isfinite(std):
+            return Table(names=["id", "xcentroid", "ycentroid", "peak", "flux", "snr"])
+
+        finder = DAOStarFinder(
+            fwhm=fwhm,
+            threshold=snr_min * std,
+            sharplo=sharplo,
+            sharphi=sharphi,
+            roundlo=roundlo,
+            roundhi=roundhi,
+        )
+
+        sources = finder(data - median)
+        if sources is None or len(sources) == 0:
+            return Table(names=["id", "xcentroid", "ycentroid", "peak", "flux", "snr"])
+
+        snr = np.asarray(sources["peak"], dtype=float) / std
+        sources["snr"] = snr
+        filtered = sources[snr > snr_min]
+        keep_cols = ["id", "xcentroid", "ycentroid", "peak", "flux", "snr"]
+        return filtered[keep_cols]
+
+    def create_star_marked_image(self, image_data, stars):
+        """在灰度图上标记星点。"""
+        finite_mask = np.isfinite(image_data)
+        if np.any(finite_mask):
+            vmin, vmax = np.percentile(image_data[finite_mask], [5, 99])
+            if vmax <= vmin:
+                vmin = float(np.min(image_data[finite_mask]))
+                vmax = float(np.max(image_data[finite_mask]))
+            if vmax <= vmin:
+                normalized = np.zeros_like(image_data, dtype=np.float32)
+            else:
+                normalized = np.clip((image_data - vmin) / (vmax - vmin), 0, 1)
+        else:
+            normalized = np.zeros_like(image_data, dtype=np.float32)
+
+        marked = cv2.cvtColor((normalized * 255).astype(np.uint8), cv2.COLOR_GRAY2RGB)
+        for i, row in enumerate(stars):
+            x = int(round(float(row["xcentroid"])))
+            y = int(round(float(row["ycentroid"])))
+            cv2.circle(marked, (x, y), 10, (255, 0, 0), 2)
+            cv2.putText(marked, str(i + 1), (x + 12, y - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+        return marked
 
     def create_signal_mask(self, data, median, sigma):
         """
@@ -1321,7 +1411,7 @@ class SignalBlobDetector:
 
         return lines
 
-    def save_results(self, original_data, stretched_data, mask, result_image, blobs,
+    def save_results(self, original_data, stretched_data, stretched_data_after_line_process, mask, result_image, blobs,
                      output_dir, base_name, threshold_info, reference_data=None, aligned_data=None, header=None,
                      generate_shape_viz=False, generate_gif=True, skybot_results=None, vsx_results=None):
         """
@@ -1366,6 +1456,31 @@ class SignalBlobDetector:
         result_output = os.path.join(output_folder, f"{base_name}_blobs_{param_str}.png")
         cv2.imwrite(result_output, result_image)
         print(f"保存检测结果图: {result_output}")
+
+        # 非快速模式下额外保存关键处理中间产物为FITS
+        # generate_shape_viz=True <=> 非快速模式
+        if generate_shape_viz:
+            stretched_fits_output = os.path.join(
+                output_folder, f"{base_name}_stretched_{stretch_method}.fits"
+            )
+            fits.writeto(
+                stretched_fits_output,
+                stretched_data.astype(np.float32),
+                header=header,
+                overwrite=True
+            )
+            print(f"保存拉伸后FITS: {stretched_fits_output}")
+
+            line_processed_fits_output = os.path.join(
+                output_folder, f"{base_name}_line_processed_{stretch_method}.fits"
+            )
+            fits.writeto(
+                line_processed_fits_output,
+                stretched_data_after_line_process.astype(np.float32),
+                header=header,
+                overwrite=True
+            )
+            print(f"保存亮线处理后FITS: {line_processed_fits_output}")
 
         # 仅为“高分项”生成截图和GIF（按项目配置的阈值）
         score_threshold = 3.0
@@ -1542,133 +1657,81 @@ class SignalBlobDetector:
     def process_fits_file(self, fits_path, output_dir=None, use_peak_stretch=None, detection_threshold=0.0,
                          reference_fits=None, aligned_fits=None, remove_bright_lines=True,
                          stretch_method='percentile', percentile_low=99.95, fast_mode=False, detection_method='contour',
-                         sort_by='aligned_snr', generate_gif=True, skybot_results=None, vsx_results=None):
+                         sort_by='aligned_snr', generate_gif=True, skybot_results=None, vsx_results=None,
+                         snr_min=5.0):
         """
-        处理 FITS 文件的完整流程
-
-        Args:
-            fits_path: difference.fits文件路径
-            output_dir: 输出目录
-            use_peak_stretch: 是否使用峰值拉伸（已废弃，使用stretch_method，默认None表示由stretch_method决定）
-            detection_threshold: 检测阈值，默认0.0（拉伸后数据范围0-1）
-            reference_fits: 参考图像（模板）FITS文件路径
-            aligned_fits: 对齐图像（下载）FITS文件路径
-            remove_bright_lines: 是否去除亮线，默认True
-            stretch_method: 拉伸方法，'peak'=峰值拉伸, 'percentile'=百分位数拉伸（默认）
-            percentile_low: 百分位数起点，默认99.95，终点使用最大值
-            fast_mode: 快速模式，不生成hull和poly可视化图片，默认False
-            detection_method: 检测方法，'contour'=轮廓检测（默认）, 'simple_blob'=SimpleBlobDetector
-            sort_by: 排序方式，'quality_score'=综合得分（默认）, 'aligned_snr'=Aligned中心7x7 SNR, 'snr'=差异图像SNR
-            generate_gif: 是否生成GIF动画，默认True
-            skybot_results: Skybot小行星查询结果（可选）
-            vsx_results: VSX变星查询结果（可选）
-
+        处理 difference.fits 的最终检测流程（简化版）：
+        不做拉伸；可选亮线去除；基于 DAOStarFinder 直接按 SNR 导出星点目标。
         """
-        # 加载数据
         data, header = self.load_fits_image(fits_path)
         if data is None:
-            return
+            return []
 
-        # 加载参考图像和对齐图像（如果提供）
-        reference_data = None
-        aligned_data = None
-
-        if reference_fits and os.path.exists(reference_fits):
-            reference_data, _ = self.load_fits_image(reference_fits)
-            if reference_data is not None:
-                print(f"已加载参考图像: {os.path.basename(reference_fits)}")
-
-        if aligned_fits and os.path.exists(aligned_fits):
-            aligned_data, _ = self.load_fits_image(aligned_fits)
-            if aligned_data is not None:
-                print(f"已加载对齐图像: {os.path.basename(aligned_fits)}")
-
-        # 根据选择的拉伸方法进行拉伸
-        # 如果明确指定了 use_peak_stretch，则使用该参数（向后兼容）
-        # 否则使用 stretch_method 参数
-        if use_peak_stretch is True or (use_peak_stretch is None and stretch_method == 'peak'):
-            # 峰值拉伸
-            stretched_data, value1, value2 = self.histogram_peak_stretch(data, ratio=2.0/3.0)
-            stretch_method_name = 'histogram_peak'
-        elif use_peak_stretch is False or stretch_method == 'percentile':
-            # 百分位数拉伸（使用最大值作为终点）
-            stretched_data, value1, value2 = self.percentile_stretch(data, percentile_low, use_max=True)
-            stretch_method_name = f'percentile_{percentile_low}_max'
-        else:
-            # 默认使用百分位数拉伸
-            stretched_data, value1, value2 = self.percentile_stretch(data, percentile_low, use_max=True)
-            stretch_method_name = f'percentile_{percentile_low}_max'
-
-        # 根据参数决定是否去除亮线
+        # 直接使用 difference.fits 原始数据进行星点提取（禁用亮线处理）
+        detection_data = data.copy()
         if remove_bright_lines:
-            print("\n执行亮线去除...")
-            stretched_uint8 = (np.clip(stretched_data, 0, 1) * 255).astype(np.uint8)
-            stretched_no_lines_uint8 = self.remove_bright_lines(stretched_uint8)
-            # 转换回0-1范围的float数据用于后续检测
-            stretched_data_no_lines = stretched_no_lines_uint8.astype(np.float64) / 255.0
-            print("亮线去除完成，使用去除亮线后的数据进行检测")
+            print("\n已忽略 --remove-lines：当前流程固定直接使用 difference.fits 进行星点检测")
         else:
-            print("\n跳过亮线去除，使用原始拉伸数据进行检测")
-            stretched_data_no_lines = stretched_data
+            print("\n直接使用 difference.fits 原始数据进行星点检测")
 
-        # 使用简单阈值检测拉伸后的数据
-        detection_data_desc = "去除亮线后的数据" if remove_bright_lines else "拉伸数据"
-        print(f"\n使用{detection_data_desc}进行检测...")
-        print(f"检测阈值: {detection_threshold}")
+        stars = self.extract_stars_by_snr(
+            detection_data,
+            snr_min=snr_min,
+            fwhm=3.0,
+            sharplo=0.2,
+            sharphi=1.0,
+            roundlo=-1.0,
+            roundhi=1.0,
+        )
 
-        # 创建掩码：拉伸后值 > detection_threshold 的像素
-        mask = (stretched_data_no_lines > detection_threshold).astype(np.uint8) * 255
-        signal_pixels = np.sum(mask > 0)
-        print(f"信号像素: {signal_pixels} ({signal_pixels/mask.size*100:.3f}%)")
+        print(f"\nSNR阈值: {snr_min}")
+        print(f"过滤后剩余 {len(stars)} 个斑点（直接作为最终目标）")
 
-        # 检测斑点
-        blobs = self.detect_blobs_from_mask(mask, stretched_data_no_lines, detection_method=detection_method)
-
-        threshold_info = {
-            'threshold': detection_threshold,
-            'value1': value1,
-            'value2': value2,
-            'stretch_method': stretch_method_name,
-            'signal_pixels': signal_pixels
-        }
-
-        # 兼容旧代码
-        if stretch_method == 'peak' or use_peak_stretch:
-            threshold_info['peak_value'] = value1
-            threshold_info['end_value'] = value2
-
-        # 输出排序前的 blob 总数
-        print(f"\n排序前检测到的 blob 总数: {len(blobs)}")
-
-        # 如果需要按 aligned_snr 排序，提前计算 SNR
-        if sort_by == 'aligned_snr' and aligned_data is not None:
-            self.calculate_aligned_snr(blobs, aligned_data)
-
-        # 排序斑点
-        blobs = self.sort_blobs(blobs, data.shape, sort_by=sort_by)
-
-        # 打印信息
-        self.print_blob_info(blobs)
-
-        # 绘制结果（使用去除亮线后的数据）
-        result_image = self.draw_blobs(stretched_data_no_lines, blobs, mask)
-
-        # 保存结果
         if output_dir is None:
             output_dir = os.path.dirname(fits_path) or '.'
-
         base_name = os.path.splitext(os.path.basename(fits_path))[0]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_folder = os.path.join(output_dir, f"detection_{timestamp}")
+        os.makedirs(output_folder, exist_ok=True)
+        print(f"\n输出文件夹: {output_folder}")
 
-        # 保存时传递去除亮线后的数据
-        # 在非快速模式下生成hull和poly可视化
-        self.save_results(data, stretched_data_no_lines, mask, result_image, blobs,
-                         output_dir, base_name, threshold_info,
-                         reference_data=reference_data, aligned_data=aligned_data,
-                         header=header, generate_shape_viz=not fast_mode, generate_gif=generate_gif,
-                         skybot_results=skybot_results, vsx_results=vsx_results)
+        # 输出CSV目标清单
+        snr_tag = int(round(float(snr_min))) if float(snr_min).is_integer() else str(snr_min).replace('.', 'p')
+        csv_output = os.path.join(output_folder, f"{base_name}_stars_snr{snr_tag}.csv")
+        stars.write(csv_output, format="csv", overwrite=True)
+        print(f"保存星点CSV: {csv_output}")
 
-        print(f"\n处理完成！")
-        return blobs
+        # 非快速模式下保留检测输入FITS，便于回溯
+        if not fast_mode:
+            detection_input_fits = os.path.join(output_folder, f"{base_name}_detection_input.fits")
+            fits.writeto(detection_input_fits, detection_data.astype(np.float32), header=header, overwrite=True)
+            print(f"保存检测输入FITS: {detection_input_fits}")
+
+        # 保存目标标记图
+        marked = self.create_star_marked_image(detection_data, stars)
+        marked_output = os.path.join(output_folder, f"{base_name}_stars_marked.png")
+        cv2.imwrite(marked_output, cv2.cvtColor(marked, cv2.COLOR_RGB2BGR))
+        print(f"保存星点标记图: {marked_output}")
+
+        # 保存简要报告（不包含评分/轮廓指标）
+        txt_output = os.path.join(output_folder, f"{base_name}_stars_analysis.txt")
+        with open(txt_output, 'w', encoding='utf-8') as f:
+            f.write("SNR星点检测结果（最终目标）\n")
+            f.write("=" * 72 + "\n")
+            f.write(f"输入文件: {fits_path}\n")
+            f.write("去亮线: 否（已禁用，固定直接使用 difference.fits）\n")
+            f.write(f"SNR阈值: {snr_min}\n")
+            f.write(f"目标数量: {len(stars)}\n\n")
+            f.write(f"{'ID':<8}{'X':<14}{'Y':<14}{'PEAK':<16}{'FLUX':<16}{'SNR':<10}\n")
+            f.write("-" * 72 + "\n")
+            for row in stars:
+                f.write(
+                    f"{int(row['id']):<8}{float(row['xcentroid']):<14.4f}{float(row['ycentroid']):<14.4f}"
+                    f"{float(row['peak']):<16.6f}{float(row['flux']):<16.6f}{float(row['snr']):<10.3f}\n"
+                )
+        print(f"保存分析报告: {txt_output}")
+        print("\n处理完成！")
+        return stars
 
 
 def main():
@@ -1710,17 +1773,16 @@ def main():
                        help='排序方式: quality_score=综合得分, aligned_snr=Aligned中心7x7 SNR（默认）, snr=差异图像SNR')
     parser.add_argument('--no-gif', action='store_true',
                        help='不生成GIF动画（默认生成）')
+    parser.add_argument('--snr-min', type=float, default=5.0,
+                       help='星点最小SNR阈值，默认 5.0（直接作为最终目标筛选）')
 
 
     args = parser.parse_args()
 
     print("=" * 80)
-    print("基于直方图的斑点检测")
-    if args.stretch_method == 'peak':
-        print("拉伸策略: 峰值为起点，峰值到最大值的2/3为终点")
-    elif args.stretch_method == 'percentile':
-        print(f"拉伸策略: {args.percentile_low}%-最大值")
-    print(f"检测阈值: {args.threshold}")
+    print("基于SNR的星点检测（不拉伸）")
+    print("去亮线: 否（已禁用）")
+    print(f"SNR阈值: {args.snr_min}")
     print("=" * 80)
 
     # 处理文件路径
@@ -1762,7 +1824,8 @@ def main():
                               fast_mode=args.fast_mode,
                               detection_method=args.detection_method,
                               sort_by=args.sort_by,
-                              generate_gif=generate_gif)
+                              generate_gif=generate_gif,
+                              snr_min=args.snr_min)
 
 
 if __name__ == "__main__":

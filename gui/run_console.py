@@ -282,6 +282,7 @@ def run_pipeline_for_files(
         generate_gif = bool(batch_cfg.get("generate_gif", False))
         diff_calc_mode = str(batch_cfg.get("diff_calc_mode", "abs"))
         apply_diff_postprocess = bool(batch_cfg.get("apply_diff_postprocess", False))
+        detection_snr_min = float(batch_cfg.get("detection_snr_min", 5.0))
 
         result = diff_integration.process_diff(
             download_file,
@@ -296,6 +297,7 @@ def run_pipeline_for_files(
             max_jaggedness_ratio=float(batch_cfg.get("max_jaggedness_ratio", 2.0)),
             detection_method=batch_cfg.get("detection_method", "contour"),
             sort_by=sort_by,
+            detection_snr_min=detection_snr_min,
             wcs_use_sparse=wcs_use_sparse,
             generate_gif=generate_gif,
             diff_calc_mode=diff_calc_mode,

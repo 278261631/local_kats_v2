@@ -400,7 +400,7 @@ class AlignedFITSComparator:
 
         return template_file, aligned_file
 
-    def run_signal_blob_detector(self, diff_fits_path, output_directory, reference_file=None, aligned_file=None, remove_bright_lines=True, stretch_method='peak', percentile_low=99.95, max_jaggedness_ratio=2.0, fast_mode=False, detection_method='contour', sort_by='aligned_snr', generate_gif=False):
+    def run_signal_blob_detector(self, diff_fits_path, output_directory, reference_file=None, aligned_file=None, remove_bright_lines=True, stretch_method='peak', percentile_low=99.95, max_jaggedness_ratio=2.0, fast_mode=False, detection_method='contour', sort_by='aligned_snr', detection_snr_min=5.0, generate_gif=False):
         """
         对difference.fits执行signal_blob_detector检测
 
@@ -416,6 +416,7 @@ class AlignedFITSComparator:
             fast_mode: 快速模式，不生成hull和poly可视化图片，默认False
             detection_method: 检测方法，'contour'=轮廓检测（默认）, 'simple_blob'=SimpleBlobDetector
             sort_by: 排序方式，'quality_score'=综合得分（默认）, 'aligned_snr'=Aligned中心7x7 SNR, 'snr'=差异图像SNR
+            detection_snr_min: 星点检测SNR阈值，默认5.0
             generate_gif: 是否生成GIF动画，默认False
 
         Returns:
@@ -440,12 +441,11 @@ class AlignedFITSComparator:
                 '--min-area', '5',
                 '--max-area', '400',
                 '--min-circularity', '0.79',
-                '--max-jaggedness-ratio', str(max_jaggedness_ratio)
+                '--max-jaggedness-ratio', str(max_jaggedness_ratio),
+                '--snr-min', str(detection_snr_min)
             ]
 
-            # 添加去除亮线参数
-            if remove_bright_lines:
-                cmd.append('--remove-lines')
+            # 亮线处理已禁用：始终直接对 difference.fits 做星点提取
 
             # 添加拉伸方法参数
             cmd.extend(['--stretch-method', stretch_method])
@@ -489,10 +489,18 @@ class AlignedFITSComparator:
                 self.logger.info("signal_blob_detector检测完成")
                 # 从输出中提取检测数量
                 output_lines = result.stdout.split('\n')
+                detected_count = None
                 for line in output_lines:
                     if '过滤后剩余' in line and '个斑点' in line:
                         self.logger.info(f"  {line.strip()}")
-                return {'success': True, 'output': result.stdout}
+                        try:
+                            import re
+                            m = re.search(r'过滤后剩余\s+(\d+)\s+个斑点', line)
+                            if m:
+                                detected_count = int(m.group(1))
+                        except Exception:
+                            pass
+                return {'success': True, 'output': result.stdout, 'detected_count': detected_count}
             else:
                 self.logger.error(f"signal_blob_detector执行失败: {result.stderr}")
                 return {'success': False, 'error': result.stderr}
@@ -504,7 +512,7 @@ class AlignedFITSComparator:
             self.logger.error(f"执行signal_blob_detector时出错: {str(e)}")
             return {'success': False, 'error': str(e)}
 
-    def process_aligned_fits_comparison(self, input_directory, output_directory=None, remove_bright_lines=True, stretch_method='peak', percentile_low=99.95, fast_mode=False, max_jaggedness_ratio=2.0, detection_method='contour', sort_by='aligned_snr', generate_gif=False, diff_calc_mode='abs', apply_diff_postprocess=False):
+    def process_aligned_fits_comparison(self, input_directory, output_directory=None, remove_bright_lines=True, stretch_method='peak', percentile_low=99.95, fast_mode=False, max_jaggedness_ratio=2.0, detection_method='contour', sort_by='aligned_snr', detection_snr_min=5.0, generate_gif=False, diff_calc_mode='abs', apply_diff_postprocess=False):
         """
         处理已对齐FITS文件的差异比较
 
@@ -518,6 +526,7 @@ class AlignedFITSComparator:
             max_jaggedness_ratio (float): 最大锯齿比率，默认2.0
             detection_method (str): 检测方法，'contour'=轮廓检测（默认）, 'simple_blob'=SimpleBlobDetector
             sort_by (str): 排序方式，'quality_score'=综合得分（默认）, 'aligned_snr'=Aligned中心7x7 SNR, 'snr'=差异图像SNR
+            detection_snr_min (float): 星点检测SNR阈值，默认5.0
             generate_gif (bool): 是否生成GIF动画，默认False
             diff_calc_mode (str): 差异计算方式，'abs'（默认）或 'signed'
             apply_diff_postprocess (bool): 是否对差异图执行后处理（负值置零+中值滤波）
@@ -753,6 +762,7 @@ class AlignedFITSComparator:
             fast_mode=fast_mode,
             detection_method=detection_method,
             sort_by=sort_by,
+            detection_snr_min=detection_snr_min,
             generate_gif=generate_gif
         )
         timing_stats['信号检测'] = time.time() - blob_start
@@ -833,12 +843,18 @@ class AlignedFITSComparator:
         self.logger.info(f"  总耗时: {total_time:.3f}秒")
         self.logger.info("=" * 60)
 
+        final_target_count = len(bright_spots)
+        if blob_detection_result and blob_detection_result.get('success'):
+            detected_count = blob_detection_result.get('detected_count')
+            if isinstance(detected_count, int):
+                final_target_count = detected_count
+
         result = {
             'success': True,
             'reference_file': reference_file,
             'aligned_file': aligned_file,
             'output_directory': output_directory,
-            'new_bright_spots': len(bright_spots),
+            'new_bright_spots': final_target_count,
             'bright_spots_details': bright_spots,
             'blob_detection': blob_detection_result,
             'output_files': output_files,
