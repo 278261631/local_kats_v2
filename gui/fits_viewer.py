@@ -255,7 +255,6 @@ class FitsImageViewer:
         self.alignment_var = tk.StringVar(value="wcs")  # 默认选择wcs
         self.jaggedness_ratio_var = tk.StringVar(value="2.0")
         self.detection_method_var = tk.StringVar(value="contour")
-        self.detection_snr_min_var = tk.StringVar(value="5.0")
         self.overlap_edge_exclusion_px_var = tk.StringVar(value="40")
         self.score_threshold_var = tk.StringVar(value="3.0")
         self.aligned_snr_threshold_var = tk.StringVar(value="1.1")
@@ -971,10 +970,6 @@ class FitsImageViewer:
             detection_method = batch_settings.get('detection_method', 'contour')
             self.detection_method_var.set(detection_method)
 
-            # 星点检测SNR阈值
-            detection_snr_min = batch_settings.get('detection_snr_min', 5.0)
-            self.detection_snr_min_var.set(str(detection_snr_min))
-
             # 重叠边界剔除宽度（像素）
             overlap_edge_exclusion_px = batch_settings.get('overlap_edge_exclusion_px', 40)
             self.overlap_edge_exclusion_px_var.set(str(overlap_edge_exclusion_px))
@@ -1032,7 +1027,7 @@ class FitsImageViewer:
             enable_line_detection_filter = batch_settings.get('enable_line_detection_filter', True)
             self.enable_line_detection_filter_var.set(enable_line_detection_filter)
 
-            self.logger.info(f"批量处理参数已加载到控件: 降噪={noise_method}, 对齐={alignment_method}, 去亮线={remove_bright_lines}, 快速模式={fast_mode}, 拉伸={stretch_method}, 百分位={percentile_low}%, 锯齿比率={max_jaggedness_ratio}, 检测方法={detection_method}, 星点SNR阈值={detection_snr_min}, 边界剔除宽度={overlap_edge_exclusion_px}px, 综合得分阈值={score_threshold}, Aligned SNR阈值={aligned_snr_threshold}, 排序方式={sort_by}, WCS稀疏采样={wcs_use_sparse}, 生成GIF={generate_gif}, 科学图背景={science_bg_mode}, 差异计算={diff_calc_mode}, difference后处理={apply_diff_postprocess}, 直线检测过滤={enable_line_detection_filter}")
+            self.logger.info(f"批量处理参数已加载到控件: 降噪={noise_method}, 对齐={alignment_method}, 去亮线={remove_bright_lines}, 快速模式={fast_mode}, 拉伸={stretch_method}, 百分位={percentile_low}%, 锯齿比率={max_jaggedness_ratio}, 检测方法={detection_method}, 边界剔除宽度={overlap_edge_exclusion_px}px, 综合得分阈值={score_threshold}, Aligned SNR阈值={aligned_snr_threshold}, 排序方式={sort_by}, WCS稀疏采样={wcs_use_sparse}, 生成GIF={generate_gif}, 科学图背景={science_bg_mode}, 差异计算={diff_calc_mode}, difference后处理={apply_diff_postprocess}, 直线检测过滤={enable_line_detection_filter}")
 
         except Exception as e:
             self.logger.error(f"加载批量处理参数失败: {str(e)}")
@@ -1083,9 +1078,6 @@ class FitsImageViewer:
 
             # 绑定检测方法单选框
             self.detection_method_var.trace('w', self._on_batch_settings_change)
-
-            # 绑定星点SNR阈值输入框
-            self.detection_snr_min_var.trace('w', self._on_detection_snr_min_change)
 
             # 绑定重叠边界剔除宽度输入框
             self.overlap_edge_exclusion_px_var.trace('w', self._on_overlap_edge_exclusion_px_change)
@@ -1259,16 +1251,6 @@ class FitsImageViewer:
         # 设置新的延迟保存任务（1秒后保存）
         self._score_save_timer = self.parent_frame.after(1000, self._save_score_threshold)
 
-    def _on_detection_snr_min_change(self, *args):
-        """星点SNR阈值参数变化时保存到配置文件（延迟保存）"""
-        if not self.config_manager:
-            return
-
-        if hasattr(self, '_detection_snr_min_save_timer'):
-            self.parent_frame.after_cancel(self._detection_snr_min_save_timer)
-
-        self._detection_snr_min_save_timer = self.parent_frame.after(1000, self._save_detection_snr_min)
-
     def _on_overlap_edge_exclusion_px_change(self, *args):
         """重叠边界剔除宽度变化时保存到配置文件（延迟保存）"""
         if not self.config_manager:
@@ -1327,20 +1309,6 @@ class FitsImageViewer:
             self.logger.warning(f"无效的综合得分阈值值: {self.score_threshold_var.get()}")
         except Exception as e:
             self.logger.error(f"保存综合得分阈值参数失败: {str(e)}")
-
-    def _save_detection_snr_min(self):
-        """保存星点SNR阈值参数到配置文件"""
-        if not self.config_manager:
-            return
-
-        try:
-            detection_snr_min = float(self.detection_snr_min_var.get())
-            self.config_manager.update_batch_process_settings(detection_snr_min=detection_snr_min)
-            self.logger.info(f"星点SNR阈值参数已保存: {detection_snr_min}")
-        except ValueError:
-            self.logger.warning(f"无效的星点SNR阈值值: {self.detection_snr_min_var.get()}")
-        except Exception as e:
-            self.logger.error(f"保存星点SNR阈值参数失败: {str(e)}")
 
     def _save_overlap_edge_exclusion_px(self):
         """保存重叠边界剔除宽度到配置文件"""
@@ -6210,15 +6178,6 @@ class FitsImageViewer:
             detection_method = self.detection_method_var.get()
             self.logger.info(f"检测方法: {detection_method}")
 
-            # 获取星点检测SNR阈值（来自批量配置，默认5.0）
-            detection_snr_min = 5.0
-            try:
-                batch_settings = self.config_manager.get_batch_process_settings()
-                detection_snr_min = float(batch_settings.get('detection_snr_min', 5.0))
-            except Exception:
-                detection_snr_min = 5.0
-            self.logger.info(f"星点检测SNR阈值: {detection_snr_min}")
-
             # 获取重叠边界剔除宽度（优先取GUI输入）
             overlap_edge_exclusion_px = 40
             try:
@@ -6263,7 +6222,6 @@ class FitsImageViewer:
                                               fast_mode=fast_mode,
                                               max_jaggedness_ratio=max_jaggedness_ratio,
                                               detection_method=detection_method,
-                                              detection_snr_min=detection_snr_min,
                                               overlap_edge_exclusion_px=overlap_edge_exclusion_px,
                                               wcs_use_sparse=wcs_use_sparse,
                                               generate_gif=generate_gif,

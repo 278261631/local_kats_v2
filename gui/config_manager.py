@@ -76,7 +76,6 @@ class ConfigManager:
                 "percentile_low": 99.95,  # 百分位参数（GUI默认值：99.95）
                 "max_jaggedness_ratio": 1.2,  # 最大锯齿比率（GUI默认值：1.2）
                 "detection_method": "contour",  # 检测方法: contour, simple_blob（GUI默认值：contour）
-                "detection_snr_min": 5.0,  # 星点检测SNR阈值（默认值：5.0）
                 "overlap_edge_exclusion_px": 40,  # 重叠边界剔除宽度（像素，默认值：40）
                 "score_threshold": 3.0,  # 综合得分阈值（GUI默认值：3.0）
                 "aligned_snr_threshold": 1.1,  # Aligned SNR阈值（GUI默认值：1.1）
@@ -347,7 +346,7 @@ class ConfigManager:
             self.save_config()
             return self.config["batch_process_settings"]
 
-        # 兼容旧配置：补齐缺失键（例如 detection_snr_min）
+        # 兼容旧配置：补齐缺失键
         changed = False
         default_batch = self.default_config.get("batch_process_settings", {})
         for key, default_value in default_batch.items():

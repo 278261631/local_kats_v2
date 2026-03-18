@@ -535,17 +535,10 @@ class FitsWebDownloaderGUI:
             snr_entry = ttk.Entry(row4_frame, textvariable=self.fits_viewer.aligned_snr_threshold_var, width=8)
             snr_entry.grid(row=0, column=1, sticky=tk.W, padx=5)
 
-            # 星点SNR阈值（新流程直接使用）
-            snr_min_label = ttk.Label(row4_frame, text="星点 SNR >")
-            snr_min_label.grid(row=0, column=2, sticky=tk.W, padx=(20, 5))
-
-            snr_min_entry = ttk.Entry(row4_frame, textvariable=self.fits_viewer.detection_snr_min_var, width=8)
-            snr_min_entry.grid(row=0, column=3, sticky=tk.W, padx=5)
-
             # 直线检测过滤开关
             line_detection_check = ttk.Checkbutton(row4_frame, text="批量导出时过滤过中心直线",
                                                   variable=self.fits_viewer.enable_line_detection_filter_var)
-            line_detection_check.grid(row=0, column=4, sticky=tk.W, padx=(20, 5))
+            line_detection_check.grid(row=0, column=2, sticky=tk.W, padx=(20, 5))
 
         # 第五行：GPS和MPC设置
         # 第六行：直线检测设置（灵敏度与中心距离）
@@ -3663,14 +3656,11 @@ Diff统计:
                     return result_dict
 
             # 执行diff操作
-            detection_snr_min = 5.0
             overlap_edge_exclusion_px = 40
             try:
                 batch_settings = self.config_manager.get_batch_process_settings()
-                detection_snr_min = float(batch_settings.get("detection_snr_min", 5.0))
                 overlap_edge_exclusion_px = int(batch_settings.get("overlap_edge_exclusion_px", 40))
             except Exception:
-                detection_snr_min = 5.0
                 overlap_edge_exclusion_px = 40
 
             diff_result = self.fits_viewer.diff_orb.process_diff(
@@ -3681,7 +3671,6 @@ Diff统计:
                 alignment_method=alignment_method,
                 remove_bright_lines=remove_bright_lines,
                 fast_mode=fast_mode,
-                detection_snr_min=detection_snr_min,
                 overlap_edge_exclusion_px=overlap_edge_exclusion_px,
                 science_bg_mode=science_bg_mode,
                 diff_calc_mode=diff_calc_mode,

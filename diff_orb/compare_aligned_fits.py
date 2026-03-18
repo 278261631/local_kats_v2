@@ -7,6 +7,9 @@
 
 import os
 import sys
+import json
+import csv
+import shutil
 import numpy as np
 import cv2
 import matplotlib
@@ -22,6 +25,7 @@ import warnings
 import glob
 import subprocess
 import time
+import shlex
 
 # 忽略警告
 warnings.filterwarnings('ignore', category=RuntimeWarning)
@@ -533,9 +537,249 @@ class AlignedFITSComparator:
 
         return template_file, aligned_file
 
-    def run_signal_blob_detector(self, diff_fits_path, output_directory, reference_file=None, aligned_file=None, fast_mode=False, detection_snr_min=5.0, generate_gif=False):
+    def _get_astap_executable(self):
         """
-        对difference.fits执行signal_blob_detector检测
+        从项目配置中解析 ASTAP 可执行文件路径。
+
+        Returns:
+            str | None: ASTAP 可执行文件路径
+        """
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(script_dir)
+            config_path = os.path.join(project_root, 'config', 'url_config.json')
+            if not os.path.exists(config_path):
+                self.logger.error(f"未找到ASTAP配置文件: {config_path}")
+                return None
+
+            with open(config_path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+
+            template = cfg.get('astap_cmd_template', '')
+            if not template:
+                self.logger.error("配置中缺少 astap_cmd_template")
+                return None
+
+            parts = shlex.split(template, posix=False)
+            if not parts:
+                self.logger.error("astap_cmd_template 解析失败")
+                return None
+
+            exe_path = parts[0].strip('"')
+            return exe_path
+        except Exception as e:
+            self.logger.error(f"解析ASTAP路径失败: {e}")
+            return None
+
+    def _normalize_cutout_to_u8(self, data):
+        """把 cutout 归一化到 uint8 便于保存 PNG。"""
+        arr = np.asarray(data, dtype=np.float32)
+        finite = np.isfinite(arr)
+        if not np.any(finite):
+            return np.zeros(arr.shape, dtype=np.uint8)
+
+        vals = arr[finite]
+        p1, p99 = np.percentile(vals, [1, 99])
+        if p99 <= p1:
+            vmin, vmax = float(np.min(vals)), float(np.max(vals))
+        else:
+            vmin, vmax = float(p1), float(p99)
+        if vmax <= vmin:
+            return np.zeros(arr.shape, dtype=np.uint8)
+
+        out = np.clip((arr - vmin) / (vmax - vmin), 0, 1)
+        return (out * 255).astype(np.uint8)
+
+    def _extract_cutout(self, image, cx, cy, size=100):
+        """围绕中心点提取固定尺寸 cutout，不足部分补零。"""
+        half = size // 2
+        h, w = image.shape
+        x0, x1 = int(cx - half), int(cx + half)
+        y0, y1 = int(cy - half), int(cy + half)
+
+        src_x0, src_x1 = max(0, x0), min(w, x1)
+        src_y0, src_y1 = max(0, y0), min(h, y1)
+
+        cut = np.zeros((size, size), dtype=np.float32)
+        dst_x0, dst_y0 = src_x0 - x0, src_y0 - y0
+        dst_x1, dst_y1 = dst_x0 + (src_x1 - src_x0), dst_y0 + (src_y1 - src_y0)
+        if src_x1 > src_x0 and src_y1 > src_y0:
+            cut[dst_y0:dst_y1, dst_x0:dst_x1] = image[src_y0:src_y1, src_x0:src_x1]
+        return cut
+
+    def _parse_astap_sources(self, output_directory, created_files, image_shape, diff_fits_path=None):
+        """
+        解析 ASTAP 产物中的星点坐标，返回 [(x, y), ...]。
+        支持 csv/txt 的宽松解析。
+        """
+        h, w = image_shape
+        coords = []
+
+        def _append_xy(xv, yv):
+            try:
+                x, y = float(xv), float(yv)
+            except Exception:
+                return
+            if 0 <= x < w and 0 <= y < h:
+                coords.append((x, y))
+
+        candidate_files = [
+            os.path.join(output_directory, f)
+            for f in created_files
+            if f.lower().endswith(('.csv', '.txt'))
+        ]
+        # ASTAP 可能覆盖已存在文件，导致 created_files 中没有变化；补充同名 csv 探测。
+        if diff_fits_path:
+            base_csv = os.path.splitext(os.path.basename(diff_fits_path))[0] + ".csv"
+            base_csv_path = os.path.join(output_directory, base_csv)
+            if os.path.exists(base_csv_path) and base_csv_path not in candidate_files:
+                candidate_files.append(base_csv_path)
+
+        for path in candidate_files:
+            try:
+                if path.lower().endswith('.csv'):
+                    with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                        reader = csv.reader(f)
+                        for row in reader:
+                            if len(row) < 2:
+                                continue
+                            # 优先前两列；失败则扫描行中前两个数字
+                            try:
+                                _append_xy(row[0], row[1])
+                                continue
+                            except Exception:
+                                pass
+
+                            nums = []
+                            for c in row:
+                                try:
+                                    nums.append(float(c))
+                                except Exception:
+                                    continue
+                                if len(nums) >= 2:
+                                    break
+                            if len(nums) >= 2:
+                                _append_xy(nums[0], nums[1])
+                else:
+                    with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                        for line in f:
+                            tokens = line.replace(',', ' ').replace(';', ' ').split()
+                            nums = []
+                            for t in tokens:
+                                try:
+                                    nums.append(float(t))
+                                except Exception:
+                                    continue
+                                if len(nums) >= 2:
+                                    break
+                            if len(nums) >= 2:
+                                _append_xy(nums[0], nums[1])
+            except Exception:
+                continue
+
+        # 去重并限制数量，避免异常文件导致过多点
+        unique = []
+        seen = set()
+        for x, y in coords:
+            key = (int(round(x)), int(round(y)))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append((x, y))
+            if len(unique) >= 2000:
+                break
+
+        return unique
+
+    def _write_astap_detection_outputs(
+        self,
+        diff_fits_path,
+        output_directory,
+        reference_file,
+        aligned_file,
+        created_files,
+        detected_count=None
+    ):
+        """
+        将 ASTAP 提取结果整理为 detection_* 目录，兼容后续 GUI/流程。
+        """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        detection_dir = os.path.join(output_directory, f"detection_{timestamp}")
+        cutouts_dir = os.path.join(detection_dir, "cutouts")
+        os.makedirs(cutouts_dir, exist_ok=True)
+
+        # 读取图像用于 cutouts
+        diff_data = self.load_fits_data(diff_fits_path)
+        ref_data = self.load_fits_data(reference_file) if reference_file and os.path.exists(reference_file) else None
+        aligned_data = self.load_fits_data(aligned_file) if aligned_file and os.path.exists(aligned_file) else None
+
+        stars = []
+        if diff_data is not None:
+            stars = self._parse_astap_sources(
+                output_directory, created_files, diff_data.shape, diff_fits_path=diff_fits_path
+            )
+
+        if detected_count is None or (int(detected_count) == 0 and len(stars) > 0):
+            detected_count = len(stars)
+
+        base_name = os.path.splitext(os.path.basename(diff_fits_path))[0]
+
+        # 拷贝 ASTAP 原始输出，便于追溯
+        raw_dir = os.path.join(detection_dir, "astap_raw")
+        os.makedirs(raw_dir, exist_ok=True)
+        for f in created_files:
+            src = os.path.join(output_directory, f)
+            if os.path.isfile(src):
+                try:
+                    shutil.copy2(src, os.path.join(raw_dir, os.path.basename(f)))
+                except Exception:
+                    pass
+
+        # 生成 cutouts（如可解析到坐标）
+        if diff_data is not None and stars:
+            for idx, (x, y) in enumerate(stars, 1):
+                ix, iy = int(round(x)), int(round(y))
+                prefix = f"{idx:03d}_X{ix}_Y{iy}"
+
+                det_cut = self._extract_cutout(diff_data, ix, iy, size=100)
+                det_u8 = self._normalize_cutout_to_u8(det_cut)
+                cv2.imwrite(os.path.join(cutouts_dir, f"{prefix}_3_detection.png"), det_u8)
+
+                if ref_data is not None:
+                    ref_cut = self._extract_cutout(ref_data, ix, iy, size=100)
+                    ref_u8 = self._normalize_cutout_to_u8(ref_cut)
+                    cv2.imwrite(os.path.join(cutouts_dir, f"{prefix}_1_reference.png"), ref_u8)
+
+                if aligned_data is not None:
+                    ali_cut = self._extract_cutout(aligned_data, ix, iy, size=100)
+                    ali_u8 = self._normalize_cutout_to_u8(ali_cut)
+                    cv2.imwrite(os.path.join(cutouts_dir, f"{prefix}_2_aligned.png"), ali_u8)
+
+        # 生成分析文件（保持 GUI 依赖的关键文案）
+        analysis_path = os.path.join(detection_dir, f"{base_name}_analysis_astap_extract2.txt")
+        with open(analysis_path, 'w', encoding='utf-8') as f:
+            f.write("ASTAP提取检测结果\n")
+            f.write("=" * 80 + "\n")
+            f.write(f"处理时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"输入差异图: {os.path.basename(diff_fits_path)}\n")
+            f.write("检测方法: ASTAP -extract 2\n")
+            f.write(f"检测到 {int(detected_count)} 个斑点\n\n")
+            if stars:
+                f.write(f"{'序号':<8}{'X坐标':<12}{'Y坐标':<12}\n")
+                f.write("-" * 40 + "\n")
+                for i, (x, y) in enumerate(stars, 1):
+                    f.write(f"{i:<8}{x:<12.2f}{y:<12.2f}\n")
+
+        return {
+            'detection_dir': detection_dir,
+            'analysis_file': analysis_path,
+            'cutouts_dir': cutouts_dir,
+            'parsed_stars': len(stars)
+        }
+
+    def run_astap_extractor(self, diff_fits_path, output_directory, reference_file=None, aligned_file=None, fast_mode=False, generate_gif=False):
+        """
+        对 difference.fits 执行 ASTAP 提取（-extract 2）。
 
         Args:
             diff_fits_path: difference.fits文件路径
@@ -543,47 +787,29 @@ class AlignedFITSComparator:
             reference_file: 参考图像（模板）FITS文件路径
             aligned_file: 对齐图像（下载）FITS文件路径
             fast_mode: 快速模式，不生成hull和poly可视化图片，默认False
-            detection_snr_min: 星点检测SNR阈值，默认5.0
             generate_gif: 是否生成GIF动画，默认False
 
         Returns:
             dict: 检测结果信息
         """
         try:
-            # 查找signal_blob_detector.py
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.dirname(script_dir)
-            detector_script = os.path.join(project_root, 'opencv_test', 'signal_blob_detector.py')
-
-            if not os.path.exists(detector_script):
-                self.logger.warning(f"未找到signal_blob_detector.py: {detector_script}")
-                return None
+            astap_exe = self._get_astap_executable()
+            if not astap_exe:
+                return {'success': False, 'error': 'ASTAP executable not found'}
 
             # 构建命令
             cmd = [
-                sys.executable,
-                detector_script,
+                astap_exe,
+                '-f',
                 diff_fits_path,
-                '--snr-min', str(detection_snr_min)
+                '-extract',
+                '2'
             ]
+            self.logger.info(f"执行ASTAP提取命令: {' '.join(cmd)}")
 
-            # 亮线处理已禁用：始终直接对 difference.fits 做星点提取
-
-            # 添加参考图像和对齐图像参数
-            if reference_file and os.path.exists(reference_file):
-                cmd.extend(['--reference', reference_file])
-            if aligned_file and os.path.exists(aligned_file):
-                cmd.extend(['--aligned', aligned_file])
-
-            # 添加快速模式参数
-            if fast_mode:
-                cmd.append('--fast-mode')
-
-            # 添加GIF生成参数（默认不生成，只有当generate_gif=False时才添加--no-gif）
-            if not generate_gif:
-                cmd.append('--no-gif')
-
-            self.logger.info(f"执行命令: {' '.join(cmd)}")
+            pre_files = set()
+            if os.path.isdir(output_directory):
+                pre_files = set(os.listdir(output_directory))
 
             # 执行检测
             result = subprocess.run(
@@ -596,34 +822,75 @@ class AlignedFITSComparator:
                 timeout=300  # 5分钟超时
             )
 
+            output_lines = (result.stdout + "\n" + result.stderr).split('\n')
+            detected_count = None
+            for line in output_lines:
+                text = line.strip()
+                if not text:
+                    continue
+                # 常见 ASTAP 输出里包含 "xxx stars"
+                try:
+                    import re
+                    m = re.search(r'(\d+)\s+stars?', text, re.IGNORECASE)
+                    if m:
+                        detected_count = int(m.group(1))
+                except Exception:
+                    pass
+
+            post_files = set(os.listdir(output_directory)) if os.path.isdir(output_directory) else set()
+            created_files = sorted(list(post_files - pre_files))
+            if created_files:
+                self.logger.info(f"ASTAP新生成文件数: {len(created_files)}")
+
+            detection_outputs = self._write_astap_detection_outputs(
+                diff_fits_path=diff_fits_path,
+                output_directory=output_directory,
+                reference_file=reference_file,
+                aligned_file=aligned_file,
+                created_files=created_files,
+                detected_count=detected_count
+            )
+            parsed_count = detection_outputs.get('parsed_stars', 0)
+
+            # 仅使用 ASTAP 导出结果：要求至少能解析到一个坐标。
+            if parsed_count <= 0:
+                err_msg = f"ASTAP未导出可解析坐标(returncode={result.returncode})"
+                self.logger.error(err_msg)
+                return {
+                    'success': False,
+                    'error': err_msg + ("\n" + result.stderr if result.stderr else ""),
+                    'detected_count': 0
+                }
+
             if result.returncode == 0:
-                self.logger.info("signal_blob_detector检测完成")
-                # 从输出中提取检测数量
-                output_lines = result.stdout.split('\n')
-                detected_count = None
-                for line in output_lines:
-                    if '过滤后剩余' in line and '个斑点' in line:
-                        self.logger.info(f"  {line.strip()}")
-                        try:
-                            import re
-                            m = re.search(r'过滤后剩余\s+(\d+)\s+个斑点', line)
-                            if m:
-                                detected_count = int(m.group(1))
-                        except Exception:
-                            pass
-                return {'success': True, 'output': result.stdout, 'detected_count': detected_count}
+                self.logger.info("ASTAP提取完成")
             else:
-                self.logger.error(f"signal_blob_detector执行失败: {result.stderr}")
-                return {'success': False, 'error': result.stderr}
+                self.logger.warning(
+                    f"ASTAP返回码非0({result.returncode})，但已解析到{parsed_count}个目标，按成功处理"
+                )
+
+            self.logger.info(
+                f"检测目录已输出: {os.path.basename(detection_outputs.get('detection_dir', ''))} "
+                f"(解析星点={parsed_count}, 统计数量={detected_count if detected_count is not None else parsed_count})"
+            )
+
+            return {
+                'success': True,
+                'output': result.stdout,
+                'detected_count': detected_count if detected_count is not None else parsed_count,
+                'created_files': created_files,
+                'detection_dir': detection_outputs.get('detection_dir'),
+                'analysis_file': detection_outputs.get('analysis_file')
+            }
 
         except subprocess.TimeoutExpired:
-            self.logger.error("signal_blob_detector执行超时")
+            self.logger.error("ASTAP提取执行超时")
             return {'success': False, 'error': 'Timeout'}
         except Exception as e:
-            self.logger.error(f"执行signal_blob_detector时出错: {str(e)}")
+            self.logger.error(f"执行ASTAP提取时出错: {str(e)}")
             return {'success': False, 'error': str(e)}
 
-    def process_aligned_fits_comparison(self, input_directory, output_directory=None, remove_bright_lines=True, fast_mode=False, max_jaggedness_ratio=2.0, detection_method='contour', detection_snr_min=5.0, overlap_edge_exclusion_px=40, generate_gif=False, diff_calc_mode='abs', apply_diff_postprocess=False):
+    def process_aligned_fits_comparison(self, input_directory, output_directory=None, remove_bright_lines=True, fast_mode=False, max_jaggedness_ratio=2.0, detection_method='contour', overlap_edge_exclusion_px=40, generate_gif=False, diff_calc_mode='abs', apply_diff_postprocess=False):
         """
         处理已对齐FITS文件的差异比较
 
@@ -634,7 +901,6 @@ class AlignedFITSComparator:
             fast_mode (bool): 快速模式，减少中间文件输出，默认False
             max_jaggedness_ratio (float): 最大锯齿比率，默认2.0
             detection_method (str): 检测方法，'contour'=轮廓检测（默认）, 'simple_blob'=SimpleBlobDetector
-            detection_snr_min (float): 星点检测SNR阈值，默认5.0
             overlap_edge_exclusion_px (int): 重叠边界剔除宽度（像素），默认40
             generate_gif (bool): 是否生成GIF动画，默认False
             diff_calc_mode (str): 差异计算方式，'abs'（默认）或 'signed'
@@ -864,15 +1130,14 @@ class AlignedFITSComparator:
         else:
             self.logger.info("快速模式：跳过中间文件保存")
 
-        # 执行signal_blob_detector检测
+        # 执行 ASTAP 提取检测
         blob_start = time.time()
-        self.logger.info("执行signal_blob_detector检测...")
-        blob_detection_result = self.run_signal_blob_detector(
+        self.logger.info("执行ASTAP提取检测...")
+        blob_detection_result = self.run_astap_extractor(
             diff_fits_path, output_directory,
             reference_file=reference_file,
             aligned_file=aligned_file,
             fast_mode=fast_mode,
-            detection_snr_min=detection_snr_min,
             generate_gif=generate_gif
         )
         timing_stats['信号检测'] = time.time() - blob_start
