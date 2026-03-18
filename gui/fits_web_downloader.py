@@ -518,6 +518,10 @@ class FitsWebDownloaderGUI:
             ttk.Label(row3_frame, text="检测参数已简化：固定使用内置检测配置").grid(
                 row=0, column=0, sticky=tk.W, padx=(0, 5)
             )
+            ttk.Label(row3_frame, text="重叠边界剔除(px):").grid(row=0, column=1, sticky=tk.W, padx=(20, 5))
+            ttk.Entry(row3_frame, textvariable=self.fits_viewer.overlap_edge_exclusion_px_var, width=8).grid(
+                row=0, column=2, sticky=tk.W, padx=(0, 5)
+            )
 
         # 第四行：阈值和排序
         row4_frame = ttk.LabelFrame(settings_container, text="筛选和排序", padding=10)
@@ -3660,11 +3664,14 @@ Diff统计:
 
             # 执行diff操作
             detection_snr_min = 5.0
+            overlap_edge_exclusion_px = 40
             try:
                 batch_settings = self.config_manager.get_batch_process_settings()
                 detection_snr_min = float(batch_settings.get("detection_snr_min", 5.0))
+                overlap_edge_exclusion_px = int(batch_settings.get("overlap_edge_exclusion_px", 40))
             except Exception:
                 detection_snr_min = 5.0
+                overlap_edge_exclusion_px = 40
 
             diff_result = self.fits_viewer.diff_orb.process_diff(
                 download_file,
@@ -3675,6 +3682,7 @@ Diff统计:
                 remove_bright_lines=remove_bright_lines,
                 fast_mode=fast_mode,
                 detection_snr_min=detection_snr_min,
+                overlap_edge_exclusion_px=overlap_edge_exclusion_px,
                 science_bg_mode=science_bg_mode,
                 diff_calc_mode=diff_calc_mode,
                 apply_diff_postprocess=apply_diff_postprocess

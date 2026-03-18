@@ -44,7 +44,8 @@ class AlignedFITSComparator:
             'gaussian_sigma': 1.0,
             'diff_threshold': 0.1,
             'min_spot_area': 5,
-            'max_spot_area': 1000
+            'max_spot_area': 1000,
+            'overlap_edge_exclusion_px': 40
         }
     
     def setup_logging(self):
@@ -123,6 +124,38 @@ class AlignedFITSComparator:
                         f"重叠比例: {np.sum(overlap_mask)/overlap_mask.size:.2%}")
 
         return overlap_mask
+
+    def trim_overlap_mask_edge(self, overlap_mask, edge_width_px):
+        """
+        去除重叠区域边界附近指定宽度的像素。
+
+        Args:
+            overlap_mask (numpy.ndarray): 原始重叠掩码
+            edge_width_px (int): 要剔除的边界宽度（像素）
+
+        Returns:
+            numpy.ndarray: 剔除边界后的重叠掩码
+        """
+        if edge_width_px <= 0:
+            return overlap_mask
+
+        # 距离变换：每个重叠像素到最近边界(非重叠像素)的距离
+        dist = cv2.distanceTransform(overlap_mask.astype(np.uint8), cv2.DIST_L2, 3)
+        trimmed_mask = (dist > float(edge_width_px)).astype(np.uint8)
+
+        original_pixels = int(np.sum(overlap_mask > 0))
+        trimmed_pixels = int(np.sum(trimmed_mask > 0))
+
+        if trimmed_pixels == 0 and original_pixels > 0:
+            self.logger.warning(
+                f"边界剔除后无有效重叠区域（边界宽度={edge_width_px}px），回退为原始重叠掩码"
+            )
+            return overlap_mask
+
+        self.logger.info(
+            f"已剔除重叠边界 {edge_width_px}px：有效像素 {original_pixels} -> {trimmed_pixels}"
+        )
+        return trimmed_mask
     
     def detect_differences(self, img1, img2, diff_calc_mode='abs', apply_diff_postprocess=False):
         """
@@ -140,6 +173,9 @@ class AlignedFITSComparator:
         # 创建重叠区域掩码
         mask_start = time.time()
         overlap_mask = self.create_overlap_mask(img1, img2)
+        overlap_mask = self.trim_overlap_mask_edge(
+            overlap_mask, int(self.diff_params.get('overlap_edge_exclusion_px', 0))
+        )
         self.logger.debug(f"  ⏱️  创建重叠掩码耗时: {time.time() - mask_start:.3f}秒")
 
         # 标准化图像
@@ -490,7 +526,7 @@ class AlignedFITSComparator:
             self.logger.error(f"执行signal_blob_detector时出错: {str(e)}")
             return {'success': False, 'error': str(e)}
 
-    def process_aligned_fits_comparison(self, input_directory, output_directory=None, remove_bright_lines=True, fast_mode=False, max_jaggedness_ratio=2.0, detection_method='contour', detection_snr_min=5.0, generate_gif=False, diff_calc_mode='abs', apply_diff_postprocess=False):
+    def process_aligned_fits_comparison(self, input_directory, output_directory=None, remove_bright_lines=True, fast_mode=False, max_jaggedness_ratio=2.0, detection_method='contour', detection_snr_min=5.0, overlap_edge_exclusion_px=40, generate_gif=False, diff_calc_mode='abs', apply_diff_postprocess=False):
         """
         处理已对齐FITS文件的差异比较
 
@@ -502,6 +538,7 @@ class AlignedFITSComparator:
             max_jaggedness_ratio (float): 最大锯齿比率，默认2.0
             detection_method (str): 检测方法，'contour'=轮廓检测（默认）, 'simple_blob'=SimpleBlobDetector
             detection_snr_min (float): 星点检测SNR阈值，默认5.0
+            overlap_edge_exclusion_px (int): 重叠边界剔除宽度（像素），默认40
             generate_gif (bool): 是否生成GIF动画，默认False
             diff_calc_mode (str): 差异计算方式，'abs'（默认）或 'signed'
             apply_diff_postprocess (bool): 是否对差异图执行后处理（负值置零+中值滤波）
@@ -548,6 +585,13 @@ class AlignedFITSComparator:
 
         timing_stats['加载FITS数据'] = time.time() - load_start
         self.logger.info(f"⏱️  加载FITS数据耗时: {timing_stats['加载FITS数据']:.3f}秒")
+
+        # 设置重叠边界剔除参数（差异检测时生效）
+        try:
+            edge_exclusion = max(0, int(overlap_edge_exclusion_px))
+        except Exception:
+            edge_exclusion = 40
+        self.diff_params['overlap_edge_exclusion_px'] = edge_exclusion
 
         # 执行差异检测
         diff_start = time.time()

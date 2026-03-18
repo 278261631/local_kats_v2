@@ -77,6 +77,7 @@ class ConfigManager:
                 "max_jaggedness_ratio": 1.2,  # 最大锯齿比率（GUI默认值：1.2）
                 "detection_method": "contour",  # 检测方法: contour, simple_blob（GUI默认值：contour）
                 "detection_snr_min": 5.0,  # 星点检测SNR阈值（默认值：5.0）
+                "overlap_edge_exclusion_px": 40,  # 重叠边界剔除宽度（像素，默认值：40）
                 "score_threshold": 3.0,  # 综合得分阈值（GUI默认值：3.0）
                 "aligned_snr_threshold": 1.1,  # Aligned SNR阈值（GUI默认值：1.1）
                 "sort_by": "aligned_snr",  # 排序方式: quality_score, aligned_snr, snr（GUI默认值：aligned_snr）
