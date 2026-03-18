@@ -607,6 +607,34 @@ class AlignedFITSComparator:
             cut[dst_y0:dst_y1, dst_x0:dst_x1] = image[src_y0:src_y1, src_x0:src_x1]
         return cut
 
+    def _save_astap_marked_difference_png(self, diff_data, stars, output_png_path):
+        """
+        基于 ASTAP 坐标导出 difference.fits 标注图。
+        """
+        if diff_data is None or len(stars) == 0:
+            return False
+
+        try:
+            gray_u8 = self._normalize_cutout_to_u8(diff_data)
+            canvas = cv2.cvtColor(gray_u8, cv2.COLOR_GRAY2BGR)
+            h, w = gray_u8.shape
+            radius = max(4, int(min(h, w) * 0.004))
+            thickness = max(1, radius // 2)
+
+            for x, y in stars:
+                ix, iy = int(round(x)), int(round(y))
+                if ix < 0 or iy < 0 or ix >= w or iy >= h:
+                    continue
+                cv2.circle(canvas, (ix, iy), radius, (0, 255, 255), thickness, lineType=cv2.LINE_AA)
+                cv2.drawMarker(canvas, (ix, iy), (0, 0, 255), markerType=cv2.MARKER_CROSS,
+                               markerSize=max(8, radius * 2), thickness=1, line_type=cv2.LINE_AA)
+
+            os.makedirs(os.path.dirname(output_png_path), exist_ok=True)
+            return bool(cv2.imwrite(output_png_path, canvas))
+        except Exception as e:
+            self.logger.warning(f"生成ASTAP标注差分图失败: {e}")
+            return False
+
     def _parse_astap_sources(self, output_directory, created_files, image_shape, diff_fits_path=None):
         """
         解析 ASTAP 产物中的星点坐标，返回 [(x, y), ...]。
@@ -698,7 +726,8 @@ class AlignedFITSComparator:
         reference_file,
         aligned_file,
         created_files,
-        detected_count=None
+        detected_count=None,
+        fast_mode=False
     ):
         """
         将 ASTAP 提取结果整理为 detection_* 目录，兼容后续 GUI/流程。
@@ -723,6 +752,7 @@ class AlignedFITSComparator:
             detected_count = len(stars)
 
         base_name = os.path.splitext(os.path.basename(diff_fits_path))[0]
+        marked_png_path = os.path.join(output_directory, f"{base_name}_astap_marked.png")
 
         # 拷贝 ASTAP 原始输出，便于追溯
         raw_dir = os.path.join(detection_dir, "astap_raw")
@@ -755,6 +785,17 @@ class AlignedFITSComparator:
                     ali_u8 = self._normalize_cutout_to_u8(ali_cut)
                     cv2.imwrite(os.path.join(cutouts_dir, f"{prefix}_2_aligned.png"), ali_u8)
 
+        # 额外输出 difference.fits 星点标注 PNG（坐标来源仅 ASTAP）
+        marked_png_generated = False
+        if diff_data is not None and stars:
+            marked_png_generated = self._save_astap_marked_difference_png(
+                diff_data=diff_data,
+                stars=stars,
+                output_png_path=marked_png_path
+            )
+            if marked_png_generated:
+                self.logger.info(f"已生成ASTAP标注图: {os.path.basename(marked_png_path)}")
+
         # 生成分析文件（保持 GUI 依赖的关键文案）
         analysis_path = os.path.join(detection_dir, f"{base_name}_analysis_astap_extract2.txt")
         with open(analysis_path, 'w', encoding='utf-8') as f:
@@ -774,7 +815,8 @@ class AlignedFITSComparator:
             'detection_dir': detection_dir,
             'analysis_file': analysis_path,
             'cutouts_dir': cutouts_dir,
-            'parsed_stars': len(stars)
+            'parsed_stars': len(stars),
+            'marked_png': marked_png_path if marked_png_generated else None
         }
 
     def run_astap_extractor(self, diff_fits_path, output_directory, reference_file=None, aligned_file=None, fast_mode=False, generate_gif=False):
@@ -848,7 +890,8 @@ class AlignedFITSComparator:
                 reference_file=reference_file,
                 aligned_file=aligned_file,
                 created_files=created_files,
-                detected_count=detected_count
+                detected_count=detected_count,
+                fast_mode=fast_mode
             )
             parsed_count = detection_outputs.get('parsed_stars', 0)
 
