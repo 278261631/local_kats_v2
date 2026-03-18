@@ -1139,18 +1139,8 @@ class FitsImageViewer:
             }
             alignment_method = alignment_mapping.get(self.alignment_var.get(), 'orb')
 
-            # 确定拉伸方法
-            stretch_method = 'percentile'
-            if self.stretch_method_var.get() == 'peak':
-                stretch_method = 'minmax'
-            elif self.stretch_method_var.get() == 'percentile':
-                stretch_method = 'percentile'
-
             # 获取检测方法
             detection_method = self.detection_method_var.get()
-
-            # 获取排序方式
-            sort_by = self.sort_by_var.get()
 
             # 获取WCS稀疏采样设置
             wcs_use_sparse = self.wcs_sparse_var.get()
@@ -1174,9 +1164,7 @@ class FitsImageViewer:
                 alignment_method=alignment_method,
                 remove_bright_lines=self.remove_lines_var.get(),
                 fast_mode=self.fast_mode_var.get(),
-                stretch_method=stretch_method,
                 detection_method=detection_method,
-                sort_by=sort_by,
                 wcs_use_sparse=wcs_use_sparse,
                 generate_gif=generate_gif,
                 science_bg_mode=science_bg_mode,
@@ -1185,7 +1173,7 @@ class FitsImageViewer:
                 enable_line_detection_filter=enable_line_detection_filter
             )
 
-            self.logger.info(f"批量处理参数已保存: 降噪={noise_method}, 对齐={alignment_method}, 去亮线={self.remove_lines_var.get()}, 快速模式={self.fast_mode_var.get()}, 拉伸={stretch_method}, 检测方法={detection_method}, 排序方式={sort_by}, WCS稀疏采样={wcs_use_sparse}, 生成GIF={generate_gif}, 科学图背景={science_bg_mode}, 差异计算={diff_calc_mode}, difference后处理={apply_diff_postprocess}, 直线检测过滤={enable_line_detection_filter}")
+            self.logger.info(f"批量处理参数已保存: 降噪={noise_method}, 对齐={alignment_method}, 去亮线={self.remove_lines_var.get()}, 快速模式={self.fast_mode_var.get()}, 检测方法={detection_method}, WCS稀疏采样={wcs_use_sparse}, 生成GIF={generate_gif}, 科学图背景={science_bg_mode}, 差异计算={diff_calc_mode}, difference后处理={apply_diff_postprocess}, 直线检测过滤={enable_line_detection_filter}")
 
         except Exception as e:
             self.logger.error(f"保存批量处理参数失败: {str(e)}")
@@ -6157,22 +6145,6 @@ class FitsImageViewer:
             remove_bright_lines = self.remove_lines_var.get()
             self.logger.info(f"去除亮线: {'是' if remove_bright_lines else '否'}")
 
-            # 获取拉伸方法选项
-            stretch_method = self.stretch_method_var.get()
-            self.logger.info(f"拉伸方法: {stretch_method}")
-
-            # 获取百分位数参数
-            percentile_low = 99.95  # 默认值
-            if stretch_method == 'percentile':
-                try:
-                    percentile_low = float(self.percentile_var.get())
-                    if percentile_low < 0 or percentile_low > 100:
-                        raise ValueError("百分位数必须在0-100之间")
-                    self.logger.info(f"百分位数: {percentile_low}%")
-                except ValueError as e:
-                    self.logger.warning(f"百分位数输入无效，使用默认值99.95%: {e}")
-                    percentile_low = 99.95
-
             # 获取快速模式选项
             fast_mode = self.fast_mode_var.get()
             self.logger.info(f"快速模式: {'是' if fast_mode else '否'}")
@@ -6191,10 +6163,6 @@ class FitsImageViewer:
             # 获取检测方法
             detection_method = self.detection_method_var.get()
             self.logger.info(f"检测方法: {detection_method}")
-
-            # 获取排序方式
-            sort_by = self.sort_by_var.get()
-            self.logger.info(f"排序方式: {sort_by}")
 
             # 获取星点检测SNR阈值（来自批量配置，默认5.0）
             detection_snr_min = 5.0
@@ -6232,12 +6200,9 @@ class FitsImageViewer:
             result = self.diff_orb.process_diff(self.selected_file_path, template_file, output_dir,
                                               noise_methods=noise_methods, alignment_method=alignment_method,
                                               remove_bright_lines=remove_bright_lines,
-                                              stretch_method=stretch_method,
-                                              percentile_low=percentile_low,
                                               fast_mode=fast_mode,
                                               max_jaggedness_ratio=max_jaggedness_ratio,
                                               detection_method=detection_method,
-                                              sort_by=sort_by,
                                               detection_snr_min=detection_snr_min,
                                               wcs_use_sparse=wcs_use_sparse,
                                               generate_gif=generate_gif,

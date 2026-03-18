@@ -274,10 +274,7 @@ def run_pipeline_for_files(
         }.get(batch_cfg.get("alignment_method", "ecc"), "wcs")
 
         remove_bright_lines = bool(batch_cfg.get("remove_bright_lines", True))
-        stretch_method = "percentile" if batch_cfg.get("stretch_method", "percentile") == "percentile" else "peak"
-        percentile_low = float(batch_cfg.get("percentile_low", 99.95))
         fast_mode = bool(batch_cfg.get("fast_mode", True))
-        sort_by = batch_cfg.get("sort_by", "aligned_snr")
         wcs_use_sparse = bool(batch_cfg.get("wcs_use_sparse", False))
         generate_gif = bool(batch_cfg.get("generate_gif", False))
         diff_calc_mode = str(batch_cfg.get("diff_calc_mode", "abs"))
@@ -291,12 +288,9 @@ def run_pipeline_for_files(
             noise_methods=noise_methods,
             alignment_method=alignment_method,
             remove_bright_lines=remove_bright_lines,
-            stretch_method=stretch_method,
-            percentile_low=percentile_low,
             fast_mode=fast_mode,
             max_jaggedness_ratio=float(batch_cfg.get("max_jaggedness_ratio", 2.0)),
             detection_method=batch_cfg.get("detection_method", "contour"),
-            sort_by=sort_by,
             detection_snr_min=detection_snr_min,
             wcs_use_sparse=wcs_use_sparse,
             generate_gif=generate_gif,

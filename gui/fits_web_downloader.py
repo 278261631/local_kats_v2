@@ -483,16 +483,7 @@ class FitsWebDownloaderGUI:
         display_row.pack(fill=tk.X, pady=(0, 10))
 
         if hasattr(self, 'fits_viewer') and self.fits_viewer:
-            # 拉伸方法
-            ttk.Label(display_row, text="拉伸方法:").grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
-            rb_peak = ttk.Radiobutton(display_row, text="峰值", variable=self.fits_viewer.stretch_method_var, value="peak")
-            rb_peak.grid(row=0, column=1, sticky=tk.W, padx=(5, 5))
-            rb_pct = ttk.Radiobutton(display_row, text="百分位数", variable=self.fits_viewer.stretch_method_var, value="percentile")
-            rb_pct.grid(row=0, column=2, sticky=tk.W, padx=(5, 15))
-            ttk.Label(display_row, text="百分位:").grid(row=0, column=3, sticky=tk.W, padx=(0, 5))
-            pct_entry = ttk.Entry(display_row, textvariable=self.fits_viewer.percentile_var, width=6)
-            pct_entry.grid(row=0, column=4, sticky=tk.W, padx=(0, 2))
-            ttk.Label(display_row, text="%").grid(row=0, column=5, sticky=tk.W, padx=(0, 10))
+            ttk.Label(display_row, text="difference 检测不使用拉伸参数").grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
 
             # 搜索半径
             ttk.Label(display_row, text="搜索半径(°):").grid(row=1, column=0, sticky=tk.W, padx=(0, 10), pady=(10, 0))
@@ -524,64 +515,33 @@ class FitsWebDownloaderGUI:
         row3_frame.pack(fill=tk.X, pady=(0, 10))
 
         if hasattr(self, 'fits_viewer') and self.fits_viewer:
-            # 锯齿比率
-            jaggedness_label = ttk.Label(row3_frame, text="锯齿比率:")
-            jaggedness_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
-
-            jaggedness_entry = ttk.Entry(row3_frame, textvariable=self.fits_viewer.jaggedness_ratio_var, width=8)
-            jaggedness_entry.grid(row=0, column=1, sticky=tk.W, padx=5)
-
-            # 检测方法
-            detection_label = ttk.Label(row3_frame, text="检测方法:")
-            detection_label.grid(row=0, column=2, sticky=tk.W, padx=(20, 5))
-
-            detection_contour_radio = ttk.Radiobutton(row3_frame, text="轮廓",
-                                                    variable=self.fits_viewer.detection_method_var, value="contour")
-            detection_contour_radio.grid(row=0, column=3, sticky=tk.W, padx=5)
-
-            detection_blob_radio = ttk.Radiobutton(row3_frame, text="SimpleBlobDetector",
-                                                 variable=self.fits_viewer.detection_method_var, value="simple_blob")
-            detection_blob_radio.grid(row=0, column=4, sticky=tk.W, padx=5)
+            ttk.Label(row3_frame, text="检测参数已简化：固定使用内置检测配置").grid(
+                row=0, column=0, sticky=tk.W, padx=(0, 5)
+            )
 
         # 第四行：阈值和排序
         row4_frame = ttk.LabelFrame(settings_container, text="筛选和排序", padding=10)
         row4_frame.pack(fill=tk.X, pady=(0, 10))
 
         if hasattr(self, 'fits_viewer') and self.fits_viewer:
-            # 综合得分阈值
-            score_label = ttk.Label(row4_frame, text="综合得分 >")
-            score_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
-
-            score_entry = ttk.Entry(row4_frame, textvariable=self.fits_viewer.score_threshold_var, width=8)
-            score_entry.grid(row=0, column=1, sticky=tk.W, padx=5)
-
             # Aligned SNR阈值
             snr_label = ttk.Label(row4_frame, text="Aligned SNR >")
-            snr_label.grid(row=0, column=2, sticky=tk.W, padx=(20, 5))
+            snr_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
 
             snr_entry = ttk.Entry(row4_frame, textvariable=self.fits_viewer.aligned_snr_threshold_var, width=8)
-            snr_entry.grid(row=0, column=3, sticky=tk.W, padx=5)
-
-            # 排序方式
-            sort_label = ttk.Label(row4_frame, text="排序:")
-            sort_label.grid(row=0, column=4, sticky=tk.W, padx=(20, 5))
-
-            sort_combo = ttk.Combobox(row4_frame, textvariable=self.fits_viewer.sort_by_var,
-                                     values=["quality_score", "aligned_snr", "snr"],
-                                     state="readonly", width=15)
-            sort_combo.grid(row=0, column=5, sticky=tk.W, padx=5)
+            snr_entry.grid(row=0, column=1, sticky=tk.W, padx=5)
 
             # 星点SNR阈值（新流程直接使用）
             snr_min_label = ttk.Label(row4_frame, text="星点 SNR >")
-            snr_min_label.grid(row=0, column=6, sticky=tk.W, padx=(20, 5))
+            snr_min_label.grid(row=0, column=2, sticky=tk.W, padx=(20, 5))
 
             snr_min_entry = ttk.Entry(row4_frame, textvariable=self.fits_viewer.detection_snr_min_var, width=8)
-            snr_min_entry.grid(row=0, column=7, sticky=tk.W, padx=5)
+            snr_min_entry.grid(row=0, column=3, sticky=tk.W, padx=5)
 
             # 直线检测过滤开关
             line_detection_check = ttk.Checkbutton(row4_frame, text="批量导出时过滤过中心直线",
                                                   variable=self.fits_viewer.enable_line_detection_filter_var)
-            line_detection_check.grid(row=0, column=8, sticky=tk.W, padx=(20, 5))
+            line_detection_check.grid(row=0, column=4, sticky=tk.W, padx=(20, 5))
 
         # 第五行：GPS和MPC设置
         # 第六行：直线检测设置（灵敏度与中心距离）
@@ -3661,7 +3621,7 @@ Diff统计:
         return output_dir
 
     def _process_single_diff(self, download_file, template_dir, noise_methods, alignment_method,
-                            remove_bright_lines, stretch_method, percentile_low, fast_mode, sort_by='aligned_snr',
+                            remove_bright_lines, fast_mode,
                             science_bg_mode='off', diff_calc_mode='abs', apply_diff_postprocess=False):
         """
         处理单个文件的diff操作（线程安全）
@@ -3713,10 +3673,7 @@ Diff统计:
                 noise_methods=noise_methods,
                 alignment_method=alignment_method,
                 remove_bright_lines=remove_bright_lines,
-                stretch_method=stretch_method,
-                percentile_low=percentile_low,
                 fast_mode=fast_mode,
-                sort_by=sort_by,
                 detection_snr_min=detection_snr_min,
                 science_bg_mode=science_bg_mode,
                 diff_calc_mode=diff_calc_mode,
@@ -4283,15 +4240,7 @@ Diff统计:
             noise_methods.append('adaptive_median')
         alignment_method = self.fits_viewer.alignment_var.get()
         remove_bright_lines = self.fits_viewer.remove_lines_var.get()
-        stretch_method = self.fits_viewer.stretch_method_var.get()
         fast_mode = self.fits_viewer.fast_mode_var.get()
-        percentile_low = 99.95
-        if stretch_method == 'percentile':
-            try:
-                percentile_low = float(self.fits_viewer.percentile_var.get())
-            except:
-                percentile_low = 99.95
-        sort_by = self.fits_viewer.sort_by_var.get()
         science_bg_mode = self.fits_viewer._get_science_bg_mode()
         diff_calc_mode = self.fits_viewer._get_diff_calc_mode()
         apply_diff_postprocess = self.fits_viewer.apply_diff_postprocess_var.get()
@@ -4408,7 +4357,7 @@ Diff统计:
                         # 执行Diff处理
                         result = self._process_single_diff(
                             file_path, template_dir, noise_methods, alignment_method,
-                            remove_bright_lines, stretch_method, percentile_low, fast_mode, sort_by, science_bg_mode, diff_calc_mode, apply_diff_postprocess
+                            remove_bright_lines, fast_mode, science_bg_mode, diff_calc_mode, apply_diff_postprocess
                         )
 
                         with stats_lock:
@@ -4707,24 +4656,12 @@ Diff统计:
 
         alignment_method = self.fits_viewer.alignment_var.get()
         remove_bright_lines = self.fits_viewer.remove_lines_var.get()
-        stretch_method = self.fits_viewer.stretch_method_var.get()
         fast_mode = self.fits_viewer.fast_mode_var.get()
-
-        # 获取百分位数参数
-        percentile_low = 99.95
-        if stretch_method == 'percentile':
-            try:
-                percentile_low = float(self.fits_viewer.percentile_var.get())
-            except:
-                percentile_low = 99.95
-
-        # 获取排序方式参数
-        sort_by = self.fits_viewer.sort_by_var.get()
         science_bg_mode = self.fits_viewer._get_science_bg_mode()
         diff_calc_mode = self.fits_viewer._get_diff_calc_mode()
         apply_diff_postprocess = self.fits_viewer.apply_diff_postprocess_var.get()
 
-        self._log(f"使用配置: 降噪={noise_methods}, 对齐={alignment_method}, 去亮线={remove_bright_lines}, 拉伸={stretch_method}, 快速模式={fast_mode}, 排序方式={sort_by}, 科学图背景={science_bg_mode}, 差异计算={diff_calc_mode}, difference后处理={apply_diff_postprocess}")
+        self._log(f"使用配置: 降噪={noise_methods}, 对齐={alignment_method}, 去亮线={remove_bright_lines}, 快速模式={fast_mode}, 科学图背景={science_bg_mode}, 差异计算={diff_calc_mode}, difference后处理={apply_diff_postprocess}")
         self._log(f"使用 {thread_count} 个线程并行处理")
 
         # 使用线程池并行处理
@@ -4748,7 +4685,7 @@ Diff统计:
                 future = executor.submit(
                     self._process_single_diff,
                     download_file, template_dir, noise_methods, alignment_method,
-                    remove_bright_lines, stretch_method, percentile_low, fast_mode, sort_by, science_bg_mode, diff_calc_mode, apply_diff_postprocess
+                    remove_bright_lines, fast_mode, science_bg_mode, diff_calc_mode, apply_diff_postprocess
                 )
                 future_to_file[future] = download_file
 

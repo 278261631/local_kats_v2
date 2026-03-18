@@ -400,7 +400,7 @@ class AlignedFITSComparator:
 
         return template_file, aligned_file
 
-    def run_signal_blob_detector(self, diff_fits_path, output_directory, reference_file=None, aligned_file=None, remove_bright_lines=True, stretch_method='peak', percentile_low=99.95, max_jaggedness_ratio=2.0, fast_mode=False, detection_method='contour', sort_by='aligned_snr', detection_snr_min=5.0, generate_gif=False):
+    def run_signal_blob_detector(self, diff_fits_path, output_directory, reference_file=None, aligned_file=None, fast_mode=False, detection_snr_min=5.0, generate_gif=False):
         """
         对difference.fits执行signal_blob_detector检测
 
@@ -409,13 +409,7 @@ class AlignedFITSComparator:
             output_directory: 输出目录
             reference_file: 参考图像（模板）FITS文件路径
             aligned_file: 对齐图像（下载）FITS文件路径
-            remove_bright_lines: 是否去除亮线，默认True
-            stretch_method: 拉伸方法，'peak'=峰值拉伸, 'percentile'=百分位数拉伸
-            percentile_low: 百分位数起点，默认99.95
-            max_jaggedness_ratio: 最大锯齿比率，默认2.0
             fast_mode: 快速模式，不生成hull和poly可视化图片，默认False
-            detection_method: 检测方法，'contour'=轮廓检测（默认）, 'simple_blob'=SimpleBlobDetector
-            sort_by: 排序方式，'quality_score'=综合得分（默认）, 'aligned_snr'=Aligned中心7x7 SNR, 'snr'=差异图像SNR
             detection_snr_min: 星点检测SNR阈值，默认5.0
             generate_gif: 是否生成GIF动画，默认False
 
@@ -437,20 +431,10 @@ class AlignedFITSComparator:
                 sys.executable,
                 detector_script,
                 diff_fits_path,
-                '--threshold', '0.0',
-                '--min-area', '5',
-                '--max-area', '400',
-                '--min-circularity', '0.79',
-                '--max-jaggedness-ratio', str(max_jaggedness_ratio),
                 '--snr-min', str(detection_snr_min)
             ]
 
             # 亮线处理已禁用：始终直接对 difference.fits 做星点提取
-
-            # 添加拉伸方法参数
-            cmd.extend(['--stretch-method', stretch_method])
-            if stretch_method == 'percentile':
-                cmd.extend(['--percentile-low', str(percentile_low)])
 
             # 添加参考图像和对齐图像参数
             if reference_file and os.path.exists(reference_file):
@@ -461,12 +445,6 @@ class AlignedFITSComparator:
             # 添加快速模式参数
             if fast_mode:
                 cmd.append('--fast-mode')
-
-            # 添加检测方法参数
-            cmd.extend(['--detection-method', detection_method])
-
-            # 添加排序方式参数
-            cmd.extend(['--sort-by', sort_by])
 
             # 添加GIF生成参数（默认不生成，只有当generate_gif=False时才添加--no-gif）
             if not generate_gif:
@@ -512,7 +490,7 @@ class AlignedFITSComparator:
             self.logger.error(f"执行signal_blob_detector时出错: {str(e)}")
             return {'success': False, 'error': str(e)}
 
-    def process_aligned_fits_comparison(self, input_directory, output_directory=None, remove_bright_lines=True, stretch_method='peak', percentile_low=99.95, fast_mode=False, max_jaggedness_ratio=2.0, detection_method='contour', sort_by='aligned_snr', detection_snr_min=5.0, generate_gif=False, diff_calc_mode='abs', apply_diff_postprocess=False):
+    def process_aligned_fits_comparison(self, input_directory, output_directory=None, remove_bright_lines=True, fast_mode=False, max_jaggedness_ratio=2.0, detection_method='contour', detection_snr_min=5.0, generate_gif=False, diff_calc_mode='abs', apply_diff_postprocess=False):
         """
         处理已对齐FITS文件的差异比较
 
@@ -520,12 +498,9 @@ class AlignedFITSComparator:
             input_directory (str): 输入目录路径
             output_directory (str): 输出目录路径
             remove_bright_lines (bool): 是否去除亮线，默认True
-            stretch_method (str): 拉伸方法，'peak'=峰值拉伸, 'percentile'=百分位数拉伸
-            percentile_low (float): 百分位数起点，默认99.95
             fast_mode (bool): 快速模式，减少中间文件输出，默认False
             max_jaggedness_ratio (float): 最大锯齿比率，默认2.0
             detection_method (str): 检测方法，'contour'=轮廓检测（默认）, 'simple_blob'=SimpleBlobDetector
-            sort_by (str): 排序方式，'quality_score'=综合得分（默认）, 'aligned_snr'=Aligned中心7x7 SNR, 'snr'=差异图像SNR
             detection_snr_min (float): 星点检测SNR阈值，默认5.0
             generate_gif (bool): 是否生成GIF动画，默认False
             diff_calc_mode (str): 差异计算方式，'abs'（默认）或 'signed'
@@ -755,13 +730,7 @@ class AlignedFITSComparator:
             diff_fits_path, output_directory,
             reference_file=reference_file,
             aligned_file=aligned_file,
-            remove_bright_lines=remove_bright_lines,
-            stretch_method=stretch_method,
-            percentile_low=percentile_low,
-            max_jaggedness_ratio=max_jaggedness_ratio,
             fast_mode=fast_mode,
-            detection_method=detection_method,
-            sort_by=sort_by,
             detection_snr_min=detection_snr_min,
             generate_gif=generate_gif
         )

@@ -151,7 +151,7 @@ class DiffOrbIntegration:
             self.logger.error(f"查找模板文件时出错: {str(e)}")
             return None
     
-    def process_diff(self, download_file: str, template_file: str, output_dir: str = None, noise_methods: list = None, alignment_method: str = 'rigid', remove_bright_lines: bool = True, stretch_method: str = 'peak', percentile_low: float = 99.95, fast_mode: bool = False, max_jaggedness_ratio: float = 2.0, detection_method: str = 'contour', sort_by: str = 'aligned_snr', detection_snr_min: float = 5.0, wcs_use_sparse: bool = False, generate_gif: bool = False, science_bg_mode: str = 'off', diff_calc_mode: str = 'abs', apply_diff_postprocess: bool = False) -> Optional[Dict]:
+    def process_diff(self, download_file: str, template_file: str, output_dir: str = None, noise_methods: list = None, alignment_method: str = 'rigid', remove_bright_lines: bool = True, fast_mode: bool = False, max_jaggedness_ratio: float = 2.0, detection_method: str = 'contour', detection_snr_min: float = 5.0, wcs_use_sparse: bool = False, generate_gif: bool = False, science_bg_mode: str = 'off', diff_calc_mode: str = 'abs', apply_diff_postprocess: bool = False) -> Optional[Dict]:
         """
         执行diff操作
 
@@ -162,12 +162,9 @@ class DiffOrbIntegration:
             noise_methods (list): 降噪方式列表，可选值：['outlier', 'hot_cold', 'adaptive_median']
             alignment_method (str): 对齐方式，可选值：['rigid', 'wcs', 'astropy_reproject', 'swarp']
             remove_bright_lines (bool): 是否去除亮线，默认True
-            stretch_method (str): 拉伸方法，'peak'=峰值拉伸, 'percentile'=百分位数拉伸
-            percentile_low (float): 百分位数起点，默认99.95
             fast_mode (bool): 快速模式，减少中间文件输出，默认False
             max_jaggedness_ratio (float): 最大锯齿比率，默认2.0
             detection_method (str): 检测方法，'contour'=轮廓检测（默认）, 'simple_blob'=SimpleBlobDetector
-            sort_by (str): 排序方式，'quality_score'=综合得分（默认）, 'aligned_snr'=Aligned中心7x7 SNR, 'snr'=差异图像SNR
             detection_snr_min (float): 星点检测SNR阈值，默认5.0
             wcs_use_sparse (bool): WCS对齐时是否使用稀疏采样优化，默认False
             generate_gif (bool): 是否生成GIF动画，默认False
@@ -305,12 +302,9 @@ class DiffOrbIntegration:
                 output_dir,  # 输入目录（包含对齐后的文件）
                 output_dir,  # 输出目录（同一目录）
                 remove_bright_lines=remove_bright_lines,  # 传递去除亮线参数
-                stretch_method=stretch_method,  # 传递拉伸方法参数
-                percentile_low=percentile_low,  # 传递百分位数参数
                 fast_mode=fast_mode,  # 传递快速模式参数
                 max_jaggedness_ratio=max_jaggedness_ratio,  # 传递锯齿比率参数
                 detection_method=detection_method,  # 传递检测方法参数
-                sort_by=sort_by,  # 传递排序方式参数
                 detection_snr_min=detection_snr_min,  # 星点检测SNR阈值
                 generate_gif=generate_gif,  # 传递生成GIF参数
                 diff_calc_mode=diff_calc_mode,  # 传递差异计算方式参数

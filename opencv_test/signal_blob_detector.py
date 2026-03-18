@@ -1656,8 +1656,7 @@ class SignalBlobDetector:
 
     def process_fits_file(self, fits_path, output_dir=None, use_peak_stretch=None, detection_threshold=0.0,
                          reference_fits=None, aligned_fits=None, remove_bright_lines=True,
-                         stretch_method='percentile', percentile_low=99.95, fast_mode=False, detection_method='contour',
-                         sort_by='aligned_snr', generate_gif=True, skybot_results=None, vsx_results=None,
+                         fast_mode=False, detection_method='contour', generate_gif=True, skybot_results=None, vsx_results=None,
                          snr_min=5.0):
         """
         处理 difference.fits 的最终检测流程（简化版）：
@@ -1750,13 +1749,8 @@ def main():
                        help='最小圆度 (0-1)，默认 0.79')
     parser.add_argument('--max-jaggedness-ratio', type=float, default=1.2,
                        help='最大锯齿比率（poly顶点数/hull顶点数），默认 1.2')
-    parser.add_argument('--stretch-method', type=str, default='percentile',
-                       choices=['peak', 'percentile'],
-                       help='拉伸方法: peak=峰值拉伸, percentile=百分位数拉伸(默认)')
-    parser.add_argument('--percentile-low', type=float, default=99.95,
-                       help='百分位数拉伸的低百分位数，默认99.95，终点使用最大值')
     parser.add_argument('--no-peak-stretch', action='store_true',
-                       help='禁用基于峰值的拉伸（已废弃，使用--stretch-method）')
+                       help='兼容旧参数：当前流程不使用拉伸，忽略该选项')
     parser.add_argument('--remove-lines', action='store_true',
                        help='去除亮线（默认不去除，添加此参数后去除）')
     parser.add_argument('--reference', type=str, default=None,
@@ -1768,9 +1762,6 @@ def main():
     parser.add_argument('--detection-method', type=str, default='contour',
                        choices=['contour', 'simple_blob'],
                        help='检测方法: contour=轮廓检测（默认）, simple_blob=SimpleBlobDetector')
-    parser.add_argument('--sort-by', type=str, default='aligned_snr',
-                       choices=['quality_score', 'aligned_snr', 'snr'],
-                       help='排序方式: quality_score=综合得分, aligned_snr=Aligned中心7x7 SNR（默认）, snr=差异图像SNR')
     parser.add_argument('--no-gif', action='store_true',
                        help='不生成GIF动画（默认生成）')
     parser.add_argument('--snr-min', type=float, default=5.0,
@@ -1819,11 +1810,8 @@ def main():
                               reference_fits=args.reference,
                               aligned_fits=args.aligned,
                               remove_bright_lines=args.remove_lines,
-                              stretch_method=args.stretch_method,
-                              percentile_low=args.percentile_low,
                               fast_mode=args.fast_mode,
                               detection_method=args.detection_method,
-                              sort_by=args.sort_by,
                               generate_gif=generate_gif,
                               snr_min=args.snr_min)
 
