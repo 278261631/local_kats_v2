@@ -14,7 +14,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from astropy.io import fits
-from scipy.ndimage import gaussian_filter, median_filter
+from scipy.ndimage import gaussian_filter, median_filter, zoom
 from pathlib import Path
 import logging
 from datetime import datetime
@@ -45,7 +45,10 @@ class AlignedFITSComparator:
             'diff_threshold': 0.1,
             'min_spot_area': 5,
             'max_spot_area': 1000,
-            'overlap_edge_exclusion_px': 40
+            'overlap_edge_exclusion_px': 40,
+            'apply_rpca_bg_subtraction': True,
+            'rpca_target_side': 384,
+            'rpca_max_iter': 30
         }
     
     def setup_logging(self):
@@ -156,6 +159,92 @@ class AlignedFITSComparator:
             f"已剔除重叠边界 {edge_width_px}px：有效像素 {original_pixels} -> {trimmed_pixels}"
         )
         return trimmed_mask
+
+    def _rpca_decompose(self, matrix, lam=None, max_iter=30, tol=1e-5):
+        """Inexact ALM RPCA: M = L + S。"""
+        m = matrix.astype(np.float64)
+        norm_m = np.linalg.norm(m, ord='fro')
+        if norm_m == 0:
+            return np.zeros_like(m), np.zeros_like(m)
+
+        if lam is None:
+            lam = 1.0 / np.sqrt(max(m.shape))
+
+        sparse = np.zeros_like(m)
+        lagrange = np.zeros_like(m)
+
+        spectral_norm = np.linalg.norm(m, ord=2)
+        mu = 1.25 / (spectral_norm + 1e-8)
+        mu_bar = mu * 1e7
+        rho = 1.5
+
+        low_rank = np.zeros_like(m)
+        for _ in range(max_iter):
+            u, s, vt = np.linalg.svd(m - sparse + lagrange / mu, full_matrices=False)
+            s_threshold = np.maximum(s - 1.0 / mu, 0)
+            rank = int(np.sum(s_threshold > 0))
+            if rank > 0:
+                low_rank = (u[:, :rank] * s_threshold[:rank]) @ vt[:rank, :]
+            else:
+                low_rank = np.zeros_like(m)
+
+            residual_for_sparse = m - low_rank + lagrange / mu
+            sparse = np.sign(residual_for_sparse) * np.maximum(np.abs(residual_for_sparse) - lam / mu, 0)
+
+            residual = m - low_rank - sparse
+            err = np.linalg.norm(residual, ord='fro') / (norm_m + 1e-8)
+            lagrange = lagrange + mu * residual
+            mu = min(mu * rho, mu_bar)
+            if err < tol:
+                break
+
+        return low_rank, sparse
+
+    def rpca_background_subtract_difference(self, diff_image, overlap_mask, diff_calc_mode='abs'):
+        """
+        对 difference 图做一次 RPCA 背景去除，仅在重叠区域生效。
+
+        Args:
+            diff_image (numpy.ndarray): 差异图
+            overlap_mask (numpy.ndarray): 重叠区域掩码
+            diff_calc_mode (str): 'abs' 或 'signed'
+
+        Returns:
+            numpy.ndarray: 去背景后的差异图
+        """
+        if np.sum(overlap_mask > 0) == 0:
+            return diff_image
+
+        data = (diff_image * overlap_mask).astype(np.float64)
+        h, w = data.shape
+        max_side = max(h, w)
+        target_side = int(self.diff_params.get('rpca_target_side', 384))
+        scale = target_side / float(max_side) if max_side > target_side else 1.0
+
+        if scale < 1.0:
+            small = zoom(data, zoom=scale, order=1)
+        else:
+            small = data.copy()
+
+        lam = 1.0 / np.sqrt(max(small.shape))
+        max_iter = int(self.diff_params.get('rpca_max_iter', 30))
+        low_rank_small, _ = self._rpca_decompose(small, lam=lam, max_iter=max_iter, tol=1e-5)
+
+        if scale < 1.0:
+            zoom_y = h / float(low_rank_small.shape[0])
+            zoom_x = w / float(low_rank_small.shape[1])
+            bg_model = zoom(low_rank_small, zoom=(zoom_y, zoom_x), order=1)
+            bg_model = bg_model[:h, :w]
+        else:
+            bg_model = low_rank_small
+
+        bg_subtracted = (data - bg_model) * overlap_mask
+
+        if diff_calc_mode == 'abs':
+            # 绝对差分场景下，保留正残差，避免引入负值噪声。
+            bg_subtracted = np.where(bg_subtracted < 0, 0, bg_subtracted)
+
+        return bg_subtracted.astype(np.float32)
     
     def detect_differences(self, img1, img2, diff_calc_mode='abs', apply_diff_postprocess=False):
         """
@@ -204,6 +293,14 @@ class AlignedFITSComparator:
             diff_image = np.where(diff_image < 0, 0, diff_image)
             # 3x3 中值滤波，抑制孤立噪声
             diff_image = median_filter(diff_image, size=3)
+
+        # 对 difference 再做一次 RPCA 去背景，抑制低频背景/边缘残留亮结构。
+        if self.diff_params.get('apply_rpca_bg_subtraction', True):
+            rpca_start = time.time()
+            diff_image = self.rpca_background_subtract_difference(
+                diff_image, overlap_mask, diff_calc_mode=diff_calc_mode
+            )
+            self.logger.debug(f"  ⏱️  RPCA去背景耗时: {time.time() - rpca_start:.3f}秒")
         self.logger.debug(f"  ⏱️  计算差异耗时: {time.time() - diff_start:.3f}秒")
 
         # 二值化差异图像
