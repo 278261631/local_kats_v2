@@ -151,7 +151,7 @@ class DiffOrbIntegration:
             self.logger.error(f"查找模板文件时出错: {str(e)}")
             return None
     
-    def process_diff(self, download_file: str, template_file: str, output_dir: str = None, noise_methods: list = None, alignment_method: str = 'rigid', remove_bright_lines: bool = True, fast_mode: bool = False, max_jaggedness_ratio: float = 2.0, detection_method: str = 'contour', overlap_edge_exclusion_px: int = 40, wcs_use_sparse: bool = False, generate_gif: bool = False, science_bg_mode: str = 'off', diff_calc_mode: str = 'abs', apply_diff_postprocess: bool = False) -> Optional[Dict]:
+    def process_diff(self, download_file: str, template_file: str, output_dir: str = None, noise_methods: list = None, alignment_method: str = 'rigid', remove_bright_lines: bool = True, fast_mode: bool = False, max_jaggedness_ratio: float = 2.0, detection_method: str = 'contour', overlap_edge_exclusion_px: int = 40, wcs_use_sparse: bool = False, generate_gif: bool = False, science_bg_mode: str = 'off', subpixel_refine_mode: str = 'off', diff_calc_mode: str = 'abs', apply_diff_postprocess: bool = False) -> Optional[Dict]:
         """
         执行diff操作
 
@@ -169,6 +169,7 @@ class DiffOrbIntegration:
             wcs_use_sparse (bool): WCS对齐时是否使用稀疏采样优化，默认False
             generate_gif (bool): 是否生成GIF动画，默认False
             science_bg_mode (str): 科学图背景处理模式，'off'|'scheme_a'|'scheme_b'
+            subpixel_refine_mode (str): 亚像素精修模式，'off'|'scheme_a'|'scheme_b'|'scheme_c'
             diff_calc_mode (str): 差异计算方式，'abs'（默认）或 'signed'
             apply_diff_postprocess (bool): 是否对difference.fits执行后处理（负值置零+中值滤波）
 
@@ -202,6 +203,7 @@ class DiffOrbIntegration:
                 "降噪方式": str(noise_methods),
                 "快速模式": fast_mode,
                 "科学图背景处理": science_bg_mode,
+                "亚像素精修模式": subpixel_refine_mode,
                 "差异计算方式": diff_calc_mode,
                 "difference后处理": apply_diff_postprocess
             })
@@ -279,6 +281,11 @@ class DiffOrbIntegration:
                 return None
 
             self.error_logger.log_info("图像对齐成功")
+
+            if str(subpixel_refine_mode).strip().lower() != 'off':
+                self.logger.info(
+                    f"亚像素精修模式已选择: {subpixel_refine_mode}（当前版本为参数透传预留，尚未启用算法实现）"
+                )
 
             # 步骤1.5：可选科学图背景处理（仅处理科学图，不处理模板图）
             bg_start = time.time()
@@ -369,6 +376,7 @@ class DiffOrbIntegration:
                     'compared_file': download_file,
                     'fast_mode': fast_mode,
                     'science_bg_mode': science_bg_mode,
+                    'subpixel_refine_mode': subpixel_refine_mode,
                     'diff_calc_mode': diff_calc_mode,
                     'apply_diff_postprocess': apply_diff_postprocess,
                     'error_log_file': error_log_path,

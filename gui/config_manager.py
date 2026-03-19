@@ -84,6 +84,7 @@ class ConfigManager:
                 "wcs_sparse_step": 16,  # WCS稀疏采样步长（GUI默认值：16）
                 "generate_gif": False,  # 是否生成GIF动画（GUI默认值：False，不生成）
                 "science_bg_mode": "off",  # 科学图背景处理模式: off, scheme_a, scheme_b
+                "subpixel_refine_mode": "off",  # 亚像素精修模式: off, scheme_a, scheme_b, scheme_c
                 "diff_calc_mode": "abs",  # 差异计算方式: abs(绝对值) 或 signed(带符号)
                 "apply_diff_postprocess": False,  # 是否对difference.fits执行后处理（负值置零+中值滤波）
                 "enable_line_detection_filter": True,  # 批量导出时是否启用直线检测过滤（GUI默认值：True，启用）

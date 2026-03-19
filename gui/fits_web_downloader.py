@@ -3585,7 +3585,8 @@ Diff统计:
 
     def _process_single_diff(self, download_file, template_dir, noise_methods, alignment_method,
                             remove_bright_lines, fast_mode,
-                            science_bg_mode='off', diff_calc_mode='abs', apply_diff_postprocess=False):
+                            science_bg_mode='off', subpixel_refine_mode='off',
+                            diff_calc_mode='abs', apply_diff_postprocess=False):
         """
         处理单个文件的diff操作（线程安全）
 
@@ -3639,6 +3640,7 @@ Diff统计:
                 fast_mode=fast_mode,
                 overlap_edge_exclusion_px=overlap_edge_exclusion_px,
                 science_bg_mode=science_bg_mode,
+                subpixel_refine_mode=subpixel_refine_mode,
                 diff_calc_mode=diff_calc_mode,
                 apply_diff_postprocess=apply_diff_postprocess
             )
@@ -4205,6 +4207,7 @@ Diff统计:
         remove_bright_lines = self.fits_viewer.remove_lines_var.get()
         fast_mode = self.fits_viewer.fast_mode_var.get()
         science_bg_mode = self.fits_viewer._get_science_bg_mode()
+        subpixel_refine_mode = self.fits_viewer._get_subpixel_refine_mode()
         diff_calc_mode = self.fits_viewer._get_diff_calc_mode()
         apply_diff_postprocess = self.fits_viewer.apply_diff_postprocess_var.get()
 
@@ -4320,7 +4323,8 @@ Diff统计:
                         # 执行Diff处理
                         result = self._process_single_diff(
                             file_path, template_dir, noise_methods, alignment_method,
-                            remove_bright_lines, fast_mode, science_bg_mode, diff_calc_mode, apply_diff_postprocess
+                            remove_bright_lines, fast_mode, science_bg_mode, subpixel_refine_mode,
+                            diff_calc_mode, apply_diff_postprocess
                         )
 
                         with stats_lock:
@@ -4621,10 +4625,11 @@ Diff统计:
         remove_bright_lines = self.fits_viewer.remove_lines_var.get()
         fast_mode = self.fits_viewer.fast_mode_var.get()
         science_bg_mode = self.fits_viewer._get_science_bg_mode()
+        subpixel_refine_mode = self.fits_viewer._get_subpixel_refine_mode()
         diff_calc_mode = self.fits_viewer._get_diff_calc_mode()
         apply_diff_postprocess = self.fits_viewer.apply_diff_postprocess_var.get()
 
-        self._log(f"使用配置: 降噪={noise_methods}, 对齐={alignment_method}, 去亮线={remove_bright_lines}, 快速模式={fast_mode}, 科学图背景={science_bg_mode}, 差异计算={diff_calc_mode}, difference后处理={apply_diff_postprocess}")
+        self._log(f"使用配置: 降噪={noise_methods}, 对齐={alignment_method}, 去亮线={remove_bright_lines}, 快速模式={fast_mode}, 科学图背景={science_bg_mode}, 亚像素精修={subpixel_refine_mode}, 差异计算={diff_calc_mode}, difference后处理={apply_diff_postprocess}")
         self._log(f"使用 {thread_count} 个线程并行处理")
 
         # 使用线程池并行处理
@@ -4648,7 +4653,8 @@ Diff统计:
                 future = executor.submit(
                     self._process_single_diff,
                     download_file, template_dir, noise_methods, alignment_method,
-                    remove_bright_lines, fast_mode, science_bg_mode, diff_calc_mode, apply_diff_postprocess
+                    remove_bright_lines, fast_mode, science_bg_mode, subpixel_refine_mode,
+                    diff_calc_mode, apply_diff_postprocess
                 )
                 future_to_file[future] = download_file
 

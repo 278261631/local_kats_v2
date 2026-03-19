@@ -282,6 +282,7 @@ def run_pipeline_for_files(
             overlap_edge_exclusion_px = 40
         wcs_use_sparse = bool(batch_cfg.get("wcs_use_sparse", False))
         generate_gif = bool(batch_cfg.get("generate_gif", False))
+        subpixel_refine_mode = str(batch_cfg.get("subpixel_refine_mode", "off"))
         diff_calc_mode = str(batch_cfg.get("diff_calc_mode", "abs"))
         apply_diff_postprocess = bool(batch_cfg.get("apply_diff_postprocess", False))
 
@@ -298,6 +299,7 @@ def run_pipeline_for_files(
             overlap_edge_exclusion_px=overlap_edge_exclusion_px,
             wcs_use_sparse=wcs_use_sparse,
             generate_gif=generate_gif,
+            subpixel_refine_mode=subpixel_refine_mode,
             diff_calc_mode=diff_calc_mode,
             apply_diff_postprocess=apply_diff_postprocess,
         )

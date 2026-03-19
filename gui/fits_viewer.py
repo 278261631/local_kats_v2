@@ -282,6 +282,16 @@ class FitsImageViewer:
         }
         self._science_bg_mode_key_map = {v: k for k, v in self._science_bg_mode_display_map.items()}
         self.science_bg_mode_display_var = tk.StringVar(value=self._science_bg_mode_display_map["off"])
+        # 亚像素精修模式（off/scheme_a/scheme_b/scheme_c）
+        self.subpixel_refine_mode_var = tk.StringVar(value="off")
+        self._subpixel_refine_mode_display_map = {
+            "off": "不启用",
+            "scheme_a": "方案A",
+            "scheme_b": "方案B",
+            "scheme_c": "方案C"
+        }
+        self._subpixel_refine_mode_key_map = {v: k for k, v in self._subpixel_refine_mode_display_map.items()}
+        self.subpixel_refine_mode_display_var = tk.StringVar(value=self._subpixel_refine_mode_display_map["off"])
         # 差异图计算方式（abs/signed）
         self.diff_calc_mode_var = tk.StringVar(value="abs")
         self._diff_calc_mode_display_map = {
@@ -325,6 +335,17 @@ class FitsImageViewer:
             width=12
         )
         self.science_bg_mode_combo.pack(side=tk.LEFT, padx=(0, 6))
+
+        # 亚像素精修模式（放在科学图背景后）
+        ttk.Label(toolbar_frame2, text="亚像素精修:").pack(side=tk.LEFT, padx=(10, 4))
+        self.subpixel_refine_mode_combo = ttk.Combobox(
+            toolbar_frame2,
+            textvariable=self.subpixel_refine_mode_display_var,
+            values=list(self._subpixel_refine_mode_display_map.values()),
+            state="readonly",
+            width=10
+        )
+        self.subpixel_refine_mode_combo.pack(side=tk.LEFT, padx=(0, 6))
 
         # 差异图计算方式（放在科学图背景后）
         ttk.Label(toolbar_frame2, text="差异计算:").pack(side=tk.LEFT, padx=(10, 4))
@@ -889,6 +910,16 @@ class FitsImageViewer:
         self.science_bg_mode_var.set(mode if mode in self._science_bg_mode_display_map else "off")
         self.science_bg_mode_display_var.set(display)
 
+    def _get_subpixel_refine_mode(self) -> str:
+        """获取亚像素精修模式配置值"""
+        return self._subpixel_refine_mode_key_map.get(self.subpixel_refine_mode_display_var.get(), "off")
+
+    def _set_subpixel_refine_mode(self, mode: str):
+        """设置亚像素精修模式显示值"""
+        display = self._subpixel_refine_mode_display_map.get(mode, self._subpixel_refine_mode_display_map["off"])
+        self.subpixel_refine_mode_var.set(mode if mode in self._subpixel_refine_mode_display_map else "off")
+        self.subpixel_refine_mode_display_var.set(display)
+
     def _get_diff_calc_mode(self) -> str:
         """获取差异计算方式配置值"""
         return self._diff_calc_mode_key_map.get(self.diff_calc_mode_display_var.get(), "abs")
@@ -1009,6 +1040,10 @@ class FitsImageViewer:
             science_bg_mode = batch_settings.get('science_bg_mode', 'off')
             self._set_science_bg_mode(science_bg_mode)
 
+            # 亚像素精修模式
+            subpixel_refine_mode = batch_settings.get('subpixel_refine_mode', 'off')
+            self._set_subpixel_refine_mode(subpixel_refine_mode)
+
             # 差异计算方式
             diff_calc_mode = batch_settings.get('diff_calc_mode', 'abs')
             self._set_diff_calc_mode(diff_calc_mode)
@@ -1019,7 +1054,7 @@ class FitsImageViewer:
             enable_line_detection_filter = batch_settings.get('enable_line_detection_filter', True)
             self.enable_line_detection_filter_var.set(enable_line_detection_filter)
 
-            self.logger.info(f"批量处理参数已加载到控件: 降噪={noise_method}, 对齐={alignment_method}, 去亮线={remove_bright_lines}, 快速模式={fast_mode}, 拉伸={stretch_method}, 百分位={percentile_low}%, 锯齿比率={max_jaggedness_ratio}, 检测方法={detection_method}, 边界剔除宽度={overlap_edge_exclusion_px}px, 综合得分阈值={score_threshold}, Aligned SNR阈值={aligned_snr_threshold}, 排序方式={sort_by}, WCS稀疏采样={wcs_use_sparse}, 生成GIF={generate_gif}, 科学图背景={science_bg_mode}, 差异计算={diff_calc_mode}, difference后处理={apply_diff_postprocess}, 直线检测过滤={enable_line_detection_filter}")
+            self.logger.info(f"批量处理参数已加载到控件: 降噪={noise_method}, 对齐={alignment_method}, 去亮线={remove_bright_lines}, 快速模式={fast_mode}, 拉伸={stretch_method}, 百分位={percentile_low}%, 锯齿比率={max_jaggedness_ratio}, 检测方法={detection_method}, 边界剔除宽度={overlap_edge_exclusion_px}px, 综合得分阈值={score_threshold}, Aligned SNR阈值={aligned_snr_threshold}, 排序方式={sort_by}, WCS稀疏采样={wcs_use_sparse}, 生成GIF={generate_gif}, 科学图背景={science_bg_mode}, 亚像素精修={subpixel_refine_mode}, 差异计算={diff_calc_mode}, difference后处理={apply_diff_postprocess}, 直线检测过滤={enable_line_detection_filter}")
 
         except Exception as e:
             self.logger.error(f"加载批量处理参数失败: {str(e)}")
@@ -1094,6 +1129,7 @@ class FitsImageViewer:
 
             # 绑定科学图背景处理模式
             self.science_bg_mode_display_var.trace('w', self._on_batch_settings_change)
+            self.subpixel_refine_mode_display_var.trace('w', self._on_batch_settings_change)
 
             # 绑定差异计算方式
             self.diff_calc_mode_display_var.trace('w', self._on_batch_settings_change)
@@ -1150,6 +1186,7 @@ class FitsImageViewer:
 
             # 获取科学图背景处理模式
             science_bg_mode = self._get_science_bg_mode()
+            subpixel_refine_mode = self._get_subpixel_refine_mode()
 
             # 获取差异计算方式
             diff_calc_mode = self._get_diff_calc_mode()
@@ -1169,12 +1206,13 @@ class FitsImageViewer:
                 wcs_use_sparse=wcs_use_sparse,
                 generate_gif=generate_gif,
                 science_bg_mode=science_bg_mode,
+                subpixel_refine_mode=subpixel_refine_mode,
                 diff_calc_mode=diff_calc_mode,
                 apply_diff_postprocess=apply_diff_postprocess,
                 enable_line_detection_filter=enable_line_detection_filter
             )
 
-            self.logger.info(f"批量处理参数已保存: 降噪={noise_method}, 对齐={alignment_method}, 去亮线={self.remove_lines_var.get()}, 快速模式={self.fast_mode_var.get()}, 检测方法={detection_method}, 边界剔除={overlap_edge_exclusion_px}px, WCS稀疏采样={wcs_use_sparse}, 生成GIF={generate_gif}, 科学图背景={science_bg_mode}, 差异计算={diff_calc_mode}, difference后处理={apply_diff_postprocess}, 直线检测过滤={enable_line_detection_filter}")
+            self.logger.info(f"批量处理参数已保存: 降噪={noise_method}, 对齐={alignment_method}, 去亮线={self.remove_lines_var.get()}, 快速模式={self.fast_mode_var.get()}, 检测方法={detection_method}, 边界剔除={overlap_edge_exclusion_px}px, WCS稀疏采样={wcs_use_sparse}, 生成GIF={generate_gif}, 科学图背景={science_bg_mode}, 亚像素精修={subpixel_refine_mode}, 差异计算={diff_calc_mode}, difference后处理={apply_diff_postprocess}, 直线检测过滤={enable_line_detection_filter}")
 
         except Exception as e:
             self.logger.error(f"保存批量处理参数失败: {str(e)}")
@@ -6195,6 +6233,8 @@ class FitsImageViewer:
             # 获取科学图背景处理模式
             science_bg_mode = self._get_science_bg_mode()
             self.logger.info(f"科学图背景处理模式: {science_bg_mode}")
+            subpixel_refine_mode = self._get_subpixel_refine_mode()
+            self.logger.info(f"亚像素精修模式: {subpixel_refine_mode}")
 
             # 获取差异计算方式
             diff_calc_mode = self._get_diff_calc_mode()
@@ -6218,6 +6258,7 @@ class FitsImageViewer:
                                               wcs_use_sparse=wcs_use_sparse,
                                               generate_gif=generate_gif,
                                               science_bg_mode=science_bg_mode,
+                                              subpixel_refine_mode=subpixel_refine_mode,
                                               diff_calc_mode=diff_calc_mode,
                                               apply_diff_postprocess=apply_diff_postprocess)
 
