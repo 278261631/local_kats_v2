@@ -261,7 +261,7 @@ class AlignedFITSComparator:
             apply_diff_postprocess (bool): 是否对差异图执行后处理（负值置零+中值滤波）
 
         Returns:
-            tuple: (差异图像, 二值化差异图像, 新亮点信息, 重叠区域掩码, 中间图像字典)
+            tuple: (差异图像, 二值化差异图像, 重叠区域掩码, 中间图像字典)
         """
         # 创建重叠区域掩码
         mask_start = time.time()
@@ -312,33 +312,6 @@ class AlignedFITSComparator:
         binary_diff = (diff_image > self.diff_params['diff_threshold']).astype(np.uint8)
         self.logger.debug(f"  ⏱️  二值化耗时: {time.time() - binary_start:.3f}秒")
 
-        # 查找连通区域（新亮点）
-        contour_start = time.time()
-        contours, _ = cv2.findContours(binary_diff, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        self.logger.debug(f"  ⏱️  查找轮廓耗时: {time.time() - contour_start:.3f}秒")
-
-        # 筛选亮点
-        filter_start = time.time()
-        bright_spots = []
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if self.diff_params['min_spot_area'] <= area <= self.diff_params['max_spot_area']:
-                # 计算质心
-                M = cv2.moments(contour)
-                if M["m00"] != 0:
-                    cx = int(M["m10"] / M["m00"])
-                    cy = int(M["m01"] / M["m00"])
-                    # 确保亮点在重叠区域内
-                    if overlap_mask[cy, cx] > 0:
-                        bright_spots.append({
-                            'position': (cx, cy),
-                            'area': area,
-                            'contour': contour
-                        })
-        self.logger.debug(f"  ⏱️  筛选亮点耗时: {time.time() - filter_start:.3f}秒")
-
-        self.logger.info(f"检测到 {len(bright_spots)} 个新亮点")
-
         intermediate_images = {
             'normalized_reference': norm_img1,
             'normalized_aligned': norm_img2,
@@ -346,7 +319,7 @@ class AlignedFITSComparator:
             'blurred_aligned': blurred_img2
         }
 
-        return diff_image, binary_diff, bright_spots, overlap_mask, intermediate_images
+        return diff_image, binary_diff, overlap_mask, intermediate_images
     
     def save_fits_result(self, data, output_path, header=None):
         """
@@ -448,34 +421,6 @@ class AlignedFITSComparator:
             self.logger.info(f"JPG文件已保存: {output_path}")
         except Exception as e:
             self.logger.error(f"保存JPG文件失败 {output_path}: {str(e)}")
-    
-    def create_marked_image(self, image, bright_spots):
-        """
-        在图像上标记新亮点
-        
-        Args:
-            image (numpy.ndarray): 原始图像
-            bright_spots (list): 亮点信息列表
-            
-        Returns:
-            numpy.ndarray: 标记后的图像
-        """
-        # 标准化图像用于显示
-        normalized = self.normalize_image(image)
-        
-        # 转换为RGB用于标记
-        marked_image = cv2.cvtColor((normalized * 255).astype(np.uint8), cv2.COLOR_GRAY2RGB)
-        
-        # 标记每个亮点
-        for i, spot in enumerate(bright_spots):
-            x, y = spot['position']
-            # 绘制红色圆圈
-            cv2.circle(marked_image, (x, y), 10, (255, 0, 0), 2)
-            # 添加编号
-            cv2.putText(marked_image, str(i+1), (x+15, y-15), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
-        
-        return marked_image
     
     def find_aligned_fits_files(self, directory):
         """
@@ -1002,19 +947,13 @@ class AlignedFITSComparator:
         # 执行差异检测
         diff_start = time.time()
         self.logger.info("执行差异检测...")
-        diff_image, binary_diff, bright_spots, overlap_mask, intermediate_images = self.detect_differences(
+        diff_image, binary_diff, overlap_mask, intermediate_images = self.detect_differences(
             ref_data, aligned_data,
             diff_calc_mode=diff_calc_mode,
             apply_diff_postprocess=apply_diff_postprocess
         )
         timing_stats['差异检测'] = time.time() - diff_start
         self.logger.info(f"⏱️  差异检测耗时: {timing_stats['差异检测']:.3f}秒")
-
-        # 创建标记图像
-        mark_start = time.time()
-        marked_image = self.create_marked_image(aligned_data, bright_spots)
-        timing_stats['创建标记图像'] = time.time() - mark_start
-        self.logger.info(f"⏱️  创建标记图像耗时: {timing_stats['创建标记图像']:.3f}秒")
 
         # 应用重叠掩码到所有输出图像（确保非重叠区域为黑色）
         mask_start = time.time()
@@ -1038,7 +977,6 @@ class AlignedFITSComparator:
 
         # 初始化文件路径变量（快速模式下可能不会创建这些文件）
         binary_fits_path = None
-        marked_fits_path = None
         overlap_mask_fits_path = None
         normalized_ref_fits_path = None
         normalized_aligned_fits_path = None
@@ -1049,20 +987,12 @@ class AlignedFITSComparator:
         diff_jpg_path = None
         binary_jpg_path = None
         overlap_mask_jpg_path = None
-        marked_jpg_path = None
-        spots_txt_path = None
 
         # 快速模式：跳过大部分中间文件保存
         if not fast_mode:
             # 保存二值化差异图像（FITS）
             binary_fits_path = os.path.join(output_directory, f"{base_name}_binary_diff.fits")
             self.save_fits_result(binary_diff.astype(np.float32), binary_fits_path)
-
-            # 保存标记图像（FITS）
-            marked_fits_path = os.path.join(output_directory, f"{base_name}_marked.fits")
-            # 将RGB图像转换为灰度用于FITS保存
-            marked_gray = cv2.cvtColor(marked_image, cv2.COLOR_RGB2GRAY)
-            self.save_fits_result(marked_gray.astype(np.float32), marked_fits_path)
 
             # 保存重叠掩码（FITS）
             overlap_mask_fits_path = os.path.join(output_directory, f"{base_name}_overlap_mask.fits")
@@ -1127,47 +1057,6 @@ class AlignedFITSComparator:
                                "重叠区域掩码（白色=重叠，黑色=非重叠）", 'gray',
                                overlap_bbox=overlap_bbox, draw_alignment_box=True)
 
-            # 保存标记图像（JPG）- 带对齐区域方框
-            marked_jpg_path = os.path.join(output_directory, f"{base_name}_marked.jpg")
-            fig, ax = plt.subplots(figsize=(10, 8))
-            ax.imshow(marked_image, origin='lower')
-            ax.set_title(f"标记新亮点图像 (共{len(bright_spots)}个)")
-            ax.axis('off')
-
-            # 在标记图像上也绘制对齐区域方框
-            if overlap_bbox is not None:
-                x_min, y_min, x_max, y_max = overlap_bbox
-                width = x_max - x_min
-                height = y_max - y_min
-                from matplotlib.patches import Rectangle
-                rect = Rectangle((x_min, y_min), width, height,
-                               linewidth=2, edgecolor='lime', facecolor='none',
-                               linestyle='--', label='Alignment Region')
-                ax.add_patch(rect)
-                ax.legend(loc='upper right', fontsize=9)
-
-            plt.tight_layout()
-            plt.savefig(marked_jpg_path, dpi=150, bbox_inches='tight')
-            plt.close()
-
-            # 保存亮点详情
-            spots_txt_path = os.path.join(output_directory, f"{base_name}_bright_spots.txt")
-            with open(spots_txt_path, 'w', encoding='utf-8') as f:
-                f.write(f"已对齐FITS文件差异检测结果\n")
-                f.write(f"处理时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"参考文件: {os.path.basename(reference_file)}\n")
-                f.write(f"对齐文件: {os.path.basename(aligned_file)}\n")
-                f.write(f"检测到新亮点数量: {len(bright_spots)}\n\n")
-
-                if bright_spots:
-                    f.write("新亮点详情:\n")
-                    f.write("-" * 50 + "\n")
-                    for i, spot in enumerate(bright_spots):
-                        f.write(f"亮点 #{i+1}:\n")
-                        f.write(f"  位置: {spot['position']}\n")
-                        f.write(f"  面积: {spot['area']:.1f} 像素\n")
-                        f.write("\n")
-
             timing_stats['保存JPG文件'] = time.time() - save_jpg_start
             self.logger.info(f"⏱️  保存JPG文件耗时: {timing_stats['保存JPG文件']:.3f}秒")
         else:
@@ -1211,8 +1100,6 @@ class AlignedFITSComparator:
             output_files['fits']['difference'] = diff_fits_path
         if binary_fits_path:
             output_files['fits']['binary_diff'] = binary_fits_path
-        if marked_fits_path:
-            output_files['fits']['marked'] = marked_fits_path
         if overlap_mask_fits_path:
             output_files['fits']['overlap_mask'] = overlap_mask_fits_path
         if normalized_ref_fits_path:
@@ -1231,12 +1118,8 @@ class AlignedFITSComparator:
             output_files['jpg']['difference'] = diff_jpg_path
         if binary_jpg_path:
             output_files['jpg']['binary_diff'] = binary_jpg_path
-        if marked_jpg_path:
-            output_files['jpg']['marked'] = marked_jpg_path
         if overlap_mask_jpg_path:
             output_files['jpg']['overlap_mask'] = overlap_mask_jpg_path
-        if spots_txt_path:
-            output_files['text'] = spots_txt_path
 
         # 计算总耗时
         total_time = time.time() - total_start_time
@@ -1249,7 +1132,6 @@ class AlignedFITSComparator:
         self.logger.info(f"  查找FITS文件: {timing_stats.get('查找FITS文件', 0):.3f}秒")
         self.logger.info(f"  加载FITS数据: {timing_stats.get('加载FITS数据', 0):.3f}秒")
         self.logger.info(f"  差异检测: {timing_stats.get('差异检测', 0):.3f}秒")
-        self.logger.info(f"  创建标记图像: {timing_stats.get('创建标记图像', 0):.3f}秒")
         self.logger.info(f"  应用重叠掩码: {timing_stats.get('应用重叠掩码', 0):.3f}秒")
         self.logger.info(f"  保存FITS文件: {timing_stats.get('保存FITS文件', 0):.3f}秒")
         self.logger.info(f"  计算边界框: {timing_stats.get('计算边界框', 0):.3f}秒")
@@ -1261,7 +1143,7 @@ class AlignedFITSComparator:
         self.logger.info(f"  总耗时: {total_time:.3f}秒")
         self.logger.info("=" * 60)
 
-        final_target_count = len(bright_spots)
+        final_target_count = 0
         if blob_detection_result and blob_detection_result.get('success'):
             detected_count = blob_detection_result.get('detected_count')
             if isinstance(detected_count, int):
@@ -1273,7 +1155,6 @@ class AlignedFITSComparator:
             'aligned_file': aligned_file,
             'output_directory': output_directory,
             'new_bright_spots': final_target_count,
-            'bright_spots_details': bright_spots,
             'blob_detection': blob_detection_result,
             'output_files': output_files,
             'fast_mode': fast_mode,
@@ -1346,11 +1227,6 @@ def main():
             print(f"参考文件: {os.path.basename(result['reference_file'])}")
             print(f"对齐文件: {os.path.basename(result['aligned_file'])}")
             print(f"检测到新亮点: {result['new_bright_spots']} 个")
-
-            if result['bright_spots_details']:
-                print("\n新亮点详情:")
-                for i, spot in enumerate(result['bright_spots_details']):
-                    print(f"  #{i+1}: 位置{spot['position']}, 面积{spot['area']:.1f}像素")
 
             print(f"\n输出文件已保存到: {result['output_directory']}")
             print("\nFITS格式文件:")
