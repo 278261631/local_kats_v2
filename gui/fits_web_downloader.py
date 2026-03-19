@@ -79,8 +79,6 @@ class FitsWebDownloaderGUI:
 
         # 自动链：批量→查询→导出 控制开关
         self._auto_chain_followups = False
-        # 自动链附加步骤：是否在自动链末尾上传到OSS（默认不启用）
-        self.auto_chain_oss_upload_var = tk.BooleanVar(value=False)
         # 自动链：是否使用本地离线查询（初始化为配置中的值）
         try:
             _local_settings = self.config_manager.get_local_catalog_settings()
@@ -303,7 +301,7 @@ class FitsWebDownloaderGUI:
 
         ttk.Button(detected_frame, text="选择保存目录", command=self._select_detected_dir).pack(side=tk.RIGHT)
 
-        # 未查询导出目录选择（也用于OSS上传）
+        # 未查询导出目录选择
         unqueried_export_frame = ttk.Frame(download_frame)
         unqueried_export_frame.pack(fill=tk.X, pady=(5, 5))
 
@@ -375,8 +373,7 @@ class FitsWebDownloaderGUI:
             get_diff_output_dir_callback=self._get_diff_output_dir,
             get_url_selections_callback=self._get_url_selections,
             log_callback=self.get_error_logger_callback(),  # 传递日志回调函数
-            file_selection_frame=file_frame,  # 传递文件选择框架
-            get_unqueried_export_dir_callback=self._get_unqueried_export_dir  # 传递未查询导出目录回调函数（也用于OSS上传）
+            file_selection_frame=file_frame  # 传递文件选择框架
         )
 
         # 设置diff_orb的GUI回调
@@ -637,15 +634,6 @@ class FitsWebDownloaderGUI:
         auto_chain_frame = ttk.LabelFrame(settings_container, text="自动链设置", padding=10)
         auto_chain_frame.pack(fill=tk.X, pady=(0, 10))
 
-        # 自动链结束后是否执行OSS上传（默认不启用）
-        auto_oss_check = ttk.Checkbutton(
-            auto_chain_frame,
-            text="自动链结束后执行OSS上传",
-            variable=self.auto_chain_oss_upload_var,
-            command=self._on_toggle_auto_chain_oss_upload
-        )
-        auto_oss_check.grid(row=0, column=0, sticky=tk.W)
-
         # 手动查询按钮：是否使用本地离线查询
         btn_local_chk = ttk.Checkbutton(
             auto_chain_frame,
@@ -653,7 +641,7 @@ class FitsWebDownloaderGUI:
             variable=self.buttons_use_local_query_var,
             command=self._on_toggle_buttons_use_local_query
         )
-        btn_local_chk.grid(row=2, column=0, sticky=tk.W, pady=(5, 0))
+        btn_local_chk.grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
 
         # 自动链：是否使用本地离线查询
         auto_local_chk = ttk.Checkbutton(
@@ -662,7 +650,7 @@ class FitsWebDownloaderGUI:
             variable=self.auto_chain_use_local_query_var,
             command=self._on_toggle_auto_chain_use_local_query
         )
-        auto_local_chk.grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
+        auto_local_chk.grid(row=0, column=0, sticky=tk.W)
 
         # 小行星查询方式设置
         asteroid_method_frame = ttk.LabelFrame(settings_container, text="小行星查询方式", padding=10)
@@ -2212,19 +2200,6 @@ class FitsWebDownloaderGUI:
                 f.write("}")
         except Exception as e:
             self._log(f"写入GY1索引文件失败: {e}")
-
-
-
-    def _on_toggle_auto_chain_oss_upload(self):
-        """高级设置：切换自动链末尾OSS上传开关（立即保存到配置）"""
-        try:
-            enabled = bool(self.auto_chain_oss_upload_var.get())
-            self.config_manager.update_automation_settings(enable_auto_chain_oss_upload=enabled)
-            self._log(f"[设置] 自动链OSS上传: {'开启' if enabled else '关闭'}")
-        except Exception as e:
-            self._log(f"保存自动链OSS上传设置失败: {e}")
-
-
     def _on_toggle_auto_chain_use_local_query(self):
         """高级设置：切换自动链是否使用本地查询（立即保存到配置）"""
         try:
@@ -2519,14 +2494,6 @@ class FitsWebDownloaderGUI:
             ai_export_root = last_selected.get("ai_training_export_root", "")
             if ai_export_root and hasattr(self, "ai_export_root_var"):
                 self.ai_export_root_var.set(ai_export_root)
-
-            # 加载自动链设置
-            try:
-                auto_settings = self.config_manager.get_automation_settings()
-                self.auto_chain_oss_upload_var.set(bool(auto_settings.get("enable_auto_chain_oss_upload", False)))
-            except Exception as _:
-                # 出现异常时保持默认 False
-                self.auto_chain_oss_upload_var.set(False)
 
             self._log("配置加载完成")
 
@@ -2919,7 +2886,7 @@ class FitsWebDownloaderGUI:
             self._log(f"检测结果将保存到: {directory}/YYYYMMDD/saved_HHMMSS_NNN/")
 
     def _select_unqueried_export_dir(self):
-        """选择未查询导出目录（也用于OSS上传）"""
+        """选择未查询导出目录"""
         # 获取当前目录作为初始目录
         current_dir = self.unqueried_export_dir_var.get()
         initial_dir = current_dir if current_dir and os.path.exists(current_dir) else os.path.expanduser("~")
@@ -2931,7 +2898,6 @@ class FitsWebDownloaderGUI:
             self.config_manager.update_last_selected(unqueried_export_directory=directory)
             self._log(f"未查询导出目录已设置: {directory}")
             self._log(f"未查询检测结果将导出到: {directory}/系统名/日期/天区/文件名/detection_xxx/")
-            self._log(f"此目录也将用于OSS上传")
 
     def _select_ai_training_export_root(self):
         """选择AI训练数据导出根目录"""
@@ -3509,7 +3475,7 @@ Diff统计:
         return self.diff_output_dir_var.get().strip()
 
     def _get_unqueried_export_dir(self):
-        """获取未查询导出目录的回调函数（也用于OSS上传）"""
+        """获取未查询导出目录的回调函数"""
         return self.unqueried_export_dir_var.get().strip()
 
     def _open_batch_output_directory(self):
@@ -5343,7 +5309,7 @@ Diff统计:
             # 开启静默模式，避免任何弹窗阻塞（包含后续查询/导出/上传链）
             setattr(self, "_auto_silent_mode", True)
             try:
-                # 需要静默viewer里的导出/OSS上传弹窗
+                # 需要静默 viewer 里的导出弹窗
                 self.fits_viewer._auto_silent_mode = True
             except Exception:
                 pass
@@ -5632,47 +5598,14 @@ Diff统计:
             import traceback
             self._log(traceback.format_exc())
         finally:
-            # 根据设置，决定是否继续执行OSS上传
-            try:
-                enabled = bool(self.auto_chain_oss_upload_var.get())
-            except Exception:
-                enabled = False
-            if enabled:
-                self._log("[自动] 已启用自动链OSS上传，500ms后开始上传...")
-                self.root.after(500, self._auto_upload_to_oss)
-            else:
-                # 关闭自动链并恢复静默标志
-                self._auto_chain_followups = False
-                try:
-                    self._auto_silent_mode = False
-                except Exception:
-                    pass
-                try:
-                    self.fits_viewer._auto_silent_mode = False
-                except Exception:
-                    pass
-
-
-    def _auto_upload_to_oss(self):
-        """自动：执行OSS上传并静默处理所有弹窗"""
-        try:
-            self._log("[自动] 开始上传到OSS...")
-            # 确保停留在查看器页签并刷新目录树（上传实现依赖导出目录配置）
-            self.notebook.select(self.viewer_frame)
-            self.fits_viewer._refresh_directory_tree()
-            # 静默执行OSS上传：自动确认上传，屏蔽完成/错误弹窗
-            # 注意：_upload_to_oss 会在后台线程中执行实际上传，此处不等待完成
-            self._run_without_messageboxes(self.fits_viewer._upload_to_oss)
-            self._log("[自动] 已启动OSS上传（后台进行），详细进度见 oss_sync/oss_upload.log")
-        except Exception as e:
-            self._log(f"[自动] 启动OSS上传失败: {e}")
-            import traceback
-            self._log(traceback.format_exc())
-        finally:
-            # 关闭自动链，并恢复下载器的静默标志（viewer会在上传线程结束时恢复）
+            # 关闭自动链并恢复静默标志
             self._auto_chain_followups = False
             try:
                 self._auto_silent_mode = False
+            except Exception:
+                pass
+            try:
+                self.fits_viewer._auto_silent_mode = False
             except Exception:
                 pass
 

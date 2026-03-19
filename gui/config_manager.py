@@ -140,9 +140,6 @@ class ConfigManager:
                 "default_colormap": "gray",
                 "auto_select_from_download_dir": True
             },
-            "automation_settings": {
-                "enable_auto_chain_oss_upload": False
-            },
             "local_catalog_settings": {
                 "use_local_query": False,
                 "auto_chain_use_local_query": False,
@@ -268,12 +265,6 @@ class ConfigManager:
                 self.config["display_settings"][key] = value
         self.save_config()
 
-    def get_automation_settings(self) -> Dict[str, Any]:
-        """获取自动化相关设置"""
-        if "automation_settings" not in self.config:
-            self.config["automation_settings"] = self.default_config.get("automation_settings", {}).copy()
-            self.save_config()
-        return self.config["automation_settings"]
     def get_local_catalog_settings(self) -> Dict[str, Any]:
         """获取本地目录查询设置"""
         if "local_catalog_settings" not in self.config:
@@ -328,16 +319,6 @@ class ConfigManager:
         for key, value in kwargs.items():
             self.config["local_catalog_settings"][key] = value
         self.save_config()
-
-
-    def update_automation_settings(self, **kwargs):
-        """更新自动化相关设置"""
-        if "automation_settings" not in self.config:
-            self.config["automation_settings"] = self.default_config.get("automation_settings", {}).copy()
-        for key, value in kwargs.items():
-            self.config["automation_settings"][key] = value
-        self.save_config()
-
     def get_batch_process_settings(self) -> Dict[str, Any]:
         """获取批量处理设置"""
         # 如果配置中没有批量处理设置，使用默认值
